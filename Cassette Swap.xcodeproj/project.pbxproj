@@ -1,0 +1,288 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A1000001000000000000001E /* CassetteSwapApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000010000000000000013 /* CassetteSwapApp.swift */; };
+		A1000001000000000000001F /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000010000000000000014 /* ContentView.swift */; };
+		A10000010000000000000020 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000010000000000000015 /* Models.swift */; };
+		A10000010000000000000021 /* PlaylistTransferViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000010000000000000016 /* PlaylistTransferViewModel.swift */; };
+		A10000010000000000000022 /* AppleMusicService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000010000000000000017 /* AppleMusicService.swift */; };
+		A10000010000000000000023 /* SpotifyOAuthCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000010000000000000018 /* SpotifyOAuthCoordinator.swift */; };
+		A10000010000000000000024 /* SpotifyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000010000000000000019 /* SpotifyService.swift */; };
+		A10000010000000000000025 /* StringSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000001A /* StringSanitizer.swift */; };
+		A10000010000000000000026 /* TrackMatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000001B /* TrackMatching.swift */; };
+		A10000010000000000000027 /* URLParsers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000001C /* URLParsers.swift */; };
+		A10000010000000000000028 /* ImageTransferService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000001D /* ImageTransferService.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A10000010000000000000008 /* Cassette Swap.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Cassette Swap.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000010000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A10000010000000000000013 /* CassetteSwapApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CassetteSwapApp.swift; sourceTree = "<group>"; };
+		A10000010000000000000014 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A10000010000000000000015 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		A10000010000000000000016 /* PlaylistTransferViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistTransferViewModel.swift; sourceTree = "<group>"; };
+		A10000010000000000000017 /* AppleMusicService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicService.swift; sourceTree = "<group>"; };
+		A10000010000000000000018 /* SpotifyOAuthCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifyOAuthCoordinator.swift; sourceTree = "<group>"; };
+		A10000010000000000000019 /* SpotifyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifyService.swift; sourceTree = "<group>"; };
+		A1000001000000000000001A /* StringSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringSanitizer.swift; sourceTree = "<group>"; };
+		A1000001000000000000001B /* TrackMatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackMatching.swift; sourceTree = "<group>"; };
+		A1000001000000000000001C /* URLParsers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLParsers.swift; sourceTree = "<group>"; };
+		A1000001000000000000001D /* ImageTransferService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageTransferService.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A1000001000000000000000A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A10000010000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				A10000010000000000000004,
+				A10000010000000000000003,
+			);
+			sourceTree = "<group>";
+		};
+		A10000010000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A10000010000000000000008 /* Cassette Swap.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A10000010000000000000004 /* Cassette Swap */ = {
+			isa = PBXGroup;
+			children = (
+				A10000010000000000000012 /* Info.plist */,
+				A10000010000000000000013 /* CassetteSwapApp.swift */,
+				A10000010000000000000014 /* ContentView.swift */,
+				A10000010000000000000015 /* Models.swift */,
+				A10000010000000000000016 /* PlaylistTransferViewModel.swift */,
+				A10000010000000000000005 /* Services */,
+				A10000010000000000000006 /* Utilities */,
+			);
+			path = "Cassette Swap";
+			sourceTree = "<group>";
+		};
+		A10000010000000000000005 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				A10000010000000000000017 /* AppleMusicService.swift */,
+				A10000010000000000000018 /* SpotifyOAuthCoordinator.swift */,
+				A10000010000000000000019 /* SpotifyService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		A10000010000000000000006 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				A1000001000000000000001D /* ImageTransferService.swift */,
+				A1000001000000000000001A /* StringSanitizer.swift */,
+				A1000001000000000000001B /* TrackMatching.swift */,
+				A1000001000000000000001C /* URLParsers.swift */,
+			);
+			path = Utilities;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A10000010000000000000007 /* Cassette Swap */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1000001000000000000000D /* Build configuration list for PBXNativeTarget "Cassette Swap" */;
+			buildPhases = (
+				A10000010000000000000009 /* Sources */,
+				A1000001000000000000000A /* Frameworks */,
+				A1000001000000000000000B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Cassette Swap";
+			productName = "Cassette Swap";
+			productReference = A10000010000000000000008 /* Cassette Swap.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10000010000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					A10000010000000000000007 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = A1000001000000000000000C /* Build configuration list for PBXProject "Cassette Swap" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A10000010000000000000002;
+			productRefGroup = A10000010000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A10000010000000000000007 /* Cassette Swap */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A1000001000000000000000B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A10000010000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000010000000000000022 /* AppleMusicService.swift in Sources */,
+				A1000001000000000000001E /* CassetteSwapApp.swift in Sources */,
+				A1000001000000000000001F /* ContentView.swift in Sources */,
+				A10000010000000000000028 /* ImageTransferService.swift in Sources */,
+				A10000010000000000000020 /* Models.swift in Sources */,
+				A10000010000000000000021 /* PlaylistTransferViewModel.swift in Sources */,
+				A10000010000000000000025 /* StringSanitizer.swift in Sources */,
+				A10000010000000000000023 /* SpotifyOAuthCoordinator.swift in Sources */,
+				A10000010000000000000024 /* SpotifyService.swift in Sources */,
+				A10000010000000000000026 /* TrackMatching.swift in Sources */,
+				A10000010000000000000027 /* URLParsers.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A1000001000000000000000E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A1000001000000000000000F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		A10000010000000000000010 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Cassette Swap/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nickjanocik.CassetteSwap;
+				PRODUCT_MODULE_NAME = CassetteSwap;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A10000010000000000000011 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Cassette Swap/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nickjanocik.CassetteSwap;
+				PRODUCT_MODULE_NAME = CassetteSwap;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A1000001000000000000000C /* Build configuration list for PBXProject "Cassette Swap" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000001000000000000000E /* Debug */,
+				A1000001000000000000000F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1000001000000000000000D /* Build configuration list for PBXNativeTarget "Cassette Swap" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000010000000000000010 /* Debug */,
+				A10000010000000000000011 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A10000010000000000000001 /* Project object */;
+}

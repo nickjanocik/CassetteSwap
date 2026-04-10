@@ -1,0 +1,703 @@
+import CryptoKit
+import Foundation
+
+final class SpotifyService {
+    static let redirectURI = "cassette-swap://spotify-callback"
+
+    private let clientIDProvider: () -> String
+    private let authCoordinator = SpotifyOAuthCoordinator()
+    private let tokenStore = SpotifyTokenStore()
+    private let session = URLSession.shared
+
+    init(clientIDProvider: @escaping () -> String) {
+        self.clientIDProvider = clientIDProvider
+    }
+
+    func fetchPlaylist(id: String, originalURL: URL) async throws -> PlaylistSnapshot {
+        try await ensureAuthorized(requiredScopes: [])
+
+        let metadata: SpotifyPlaylistMetadata = try await apiRequest(path: "/v1/playlists/\(id)")
+        var tracks: [TransferTrack] = []
+        var offset = 0
+        let pageSize = 100
+
+        while true {
+            let page: SpotifyPlaylistTracksPage = try await apiRequest(path: "/v1/playlists/\(id)/tracks?limit=\(pageSize)&offset=\(offset)")
+            let trackIDs = page.items.compactMap { item -> String? in
+                guard let track = item.track, track.type == "track", track.isLocal != true, let id = track.id else {
+                    return nil
+                }
+                return id
+            }
+
+            let isrcLookup = try await fetchISRCs(for: trackIDs)
+
+            for item in page.items {
+                guard let track = item.track, track.type == "track", track.isLocal != true, let id = track.id else {
+                    continue
+                }
+
+                tracks.append(
+                    TransferTrack(
+                        id: id,
+                        title: track.name,
+                        artistName: track.artists.map(\.name).joined(separator: ", "),
+                        albumTitle: track.album?.name,
+                        isrc: isrcLookup[id],
+                        originalPosition: tracks.count + 1
+                    )
+                )
+            }
+
+            offset += page.items.count
+            if page.items.isEmpty || offset >= page.total {
+                break
+            }
+        }
+
+        return PlaylistSnapshot(
+            reference: PlaylistReference(
+                service: .spotify,
+                playlistID: id,
+                storefront: nil,
+                originalURL: originalURL
+            ),
+            name: metadata.name,
+            summary: (metadata.description ?? "").strippedHTML,
+            artworkURL: metadata.images.first?.url,
+            tracks: tracks
+        )
+    }
+
+    func resolveTracks(from sourceTracks: [TransferTrack], progress: ProgressHandler? = nil) async throws -> TrackResolution {
+        try await ensureAuthorized(requiredScopes: [])
+
+        var matched: [DestinationTrackReference] = []
+        var unmatched: [TransferTrack] = []
+        var isrcCache: [String: DestinationTrackReference?] = [:]
+        var textCache: [String: DestinationTrackReference?] = [:]
+
+        for (index, track) in sourceTracks.enumerated() {
+            if let progress {
+                let fraction = sourceTracks.isEmpty ? 1 : Double(index) / Double(sourceTracks.count)
+                await progress("Matching track \(index + 1) of \(sourceTracks.count) on Spotify...", fraction)
+            }
+
+            if let isrc = track.isrc?.uppercased(), !isrc.isEmpty, let cached = isrcCache[isrc] {
+                if let cached {
+                    matched.append(cached)
+                } else {
+                    unmatched.append(track)
+                }
+                continue
+            }
+
+            let textKey = "\(track.title.normalizedForMatching)|\(track.artistName.normalizedForMatching)|\(track.albumTitle?.normalizedForMatching ?? "")"
+            if let cached = textCache[textKey] {
+                if let cached {
+                    matched.append(cached)
+                } else {
+                    unmatched.append(track)
+                }
+                continue
+            }
+
+            let resolved = try await findSpotifyTrack(for: track)
+
+            if let isrc = track.isrc?.uppercased(), !isrc.isEmpty {
+                isrcCache[isrc] = resolved
+            }
+            textCache[textKey] = resolved
+
+            if let resolved {
+                matched.append(resolved)
+            } else {
+                unmatched.append(track)
+            }
+        }
+
+        if let progress {
+            await progress("Matched \(matched.count) of \(sourceTracks.count) tracks on Spotify.", 1)
+        }
+
+        return TrackResolution(matched: matched, unmatched: unmatched)
+    }
+
+    func createPlaylist(from snapshot: PlaylistSnapshot, matchedTracks: [DestinationTrackReference], copyArtwork: Bool) async throws -> (playlistID: String, playlistURL: URL?, artworkCopied: Bool) {
+        let scopes = copyArtwork ? Set([SpotifyScope.playlistModifyPublic, SpotifyScope.ugcImageUpload]) : Set([SpotifyScope.playlistModifyPublic])
+        try await ensureAuthorized(requiredScopes: scopes)
+
+        let createBody = SpotifyCreatePlaylistRequest(
+            name: snapshot.name.truncated(to: 100),
+            description: snapshot.summary.truncated(to: 300).nilIfBlank,
+            `public`: true
+        )
+
+        let payload = try JSONEncoder().encode(createBody)
+        let created: SpotifyCreatedPlaylist = try await apiRequest(
+            path: "/v1/me/playlists",
+            method: "POST",
+            body: payload,
+            contentType: "application/json",
+            requiredScopes: scopes
+        )
+
+        let uris = matchedTracks.compactMap(\.uri)
+        for chunk in uris.chunked(into: 100) {
+            let addBody = try JSONEncoder().encode(SpotifyAddTracksRequest(uris: chunk))
+            try await apiRequestWithoutBody(
+                path: "/v1/playlists/\(created.id)/tracks",
+                method: "POST",
+                body: addBody,
+                contentType: "application/json",
+                requiredScopes: [.playlistModifyPublic]
+            )
+        }
+
+        var artworkCopied = false
+        if copyArtwork, let artworkURL = snapshot.artworkURL {
+            do {
+                let imagePayload = try await ImageTransferService.spotifyJPEGBase64Body(from: artworkURL)
+                try await apiRequestWithoutBody(
+                    path: "/v1/playlists/\(created.id)/images",
+                    method: "PUT",
+                    body: imagePayload,
+                    contentType: "image/jpeg",
+                    requiredScopes: [.ugcImageUpload]
+                )
+                artworkCopied = true
+            } catch {
+                artworkCopied = false
+            }
+        }
+
+        return (playlistID: created.id, playlistURL: created.externalURLs.spotify, artworkCopied: artworkCopied)
+    }
+
+    private func findSpotifyTrack(for track: TransferTrack) async throws -> DestinationTrackReference? {
+        if let isrc = track.isrc?.uppercased(), !isrc.isEmpty {
+            let results = try await searchTracks(query: "isrc:\(isrc)", limit: 5)
+            if let best = results.first {
+                return DestinationTrackReference(id: best.id, type: best.type, uri: best.uri)
+            }
+        }
+
+        let strictResults = try await searchTracks(query: "track:\(track.title) artist:\(track.artistName)", limit: 10)
+        if let best = bestSpotifyMatch(in: strictResults, for: track) {
+            let score = TrackMatcher.score(
+                source: track,
+                candidateTitle: best.name,
+                candidateArtist: best.artists.map(\.name).joined(separator: ", "),
+                candidateAlbum: best.album?.name,
+                candidateISRC: nil
+            )
+
+            if TrackMatcher.isGoodEnough(score) {
+                return DestinationTrackReference(id: best.id, type: best.type, uri: best.uri)
+            }
+        }
+
+        let fallbackResults = try await searchTracks(query: "\(track.title) \(track.artistName) \(track.albumTitle ?? "")", limit: 10)
+        guard let best = bestSpotifyMatch(in: fallbackResults, for: track) else {
+            return nil
+        }
+
+        let score = TrackMatcher.score(
+            source: track,
+            candidateTitle: best.name,
+            candidateArtist: best.artists.map(\.name).joined(separator: ", "),
+            candidateAlbum: best.album?.name,
+            candidateISRC: nil
+        )
+
+        guard TrackMatcher.isGoodEnough(score) else {
+            return nil
+        }
+
+        return DestinationTrackReference(id: best.id, type: best.type, uri: best.uri)
+    }
+
+    private func bestSpotifyMatch(in candidates: [SpotifySearchTrack], for sourceTrack: TransferTrack) -> SpotifySearchTrack? {
+        candidates.max { lhs, rhs in
+            TrackMatcher.score(
+                source: sourceTrack,
+                candidateTitle: lhs.name,
+                candidateArtist: lhs.artists.map(\.name).joined(separator: ", "),
+                candidateAlbum: lhs.album?.name,
+                candidateISRC: nil
+            ) <
+            TrackMatcher.score(
+                source: sourceTrack,
+                candidateTitle: rhs.name,
+                candidateArtist: rhs.artists.map(\.name).joined(separator: ", "),
+                candidateAlbum: rhs.album?.name,
+                candidateISRC: nil
+            )
+        }
+    }
+
+    private func searchTracks(query: String, limit: Int) async throws -> [SpotifySearchTrack] {
+        var components = URLComponents(string: "https://api.spotify.com/v1/search")!
+        components.queryItems = [
+            URLQueryItem(name: "type", value: "track"),
+            URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "q", value: query)
+        ]
+
+        let response: SpotifySearchEnvelope = try await apiRequest(url: components.url!)
+        return response.tracks.items
+    }
+
+    private func fetchISRCs(for ids: [String]) async throws -> [String: String] {
+        var lookup: [String: String] = [:]
+
+        for chunk in ids.chunked(into: 50) {
+            var components = URLComponents(string: "https://api.spotify.com/v1/tracks")!
+            components.queryItems = [
+                URLQueryItem(name: "ids", value: chunk.joined(separator: ","))
+            ]
+
+            let response: SpotifyTracksEnvelope = try await apiRequest(url: components.url!)
+            for track in response.tracks {
+                guard let track else { continue }
+                if let isrc = track.externalIDs?.isrc {
+                    lookup[track.id] = isrc
+                }
+            }
+        }
+
+        return lookup
+    }
+
+    private func ensureAuthorized(requiredScopes: Set<SpotifyScope>) async throws {
+        let clientID = try validatedClientID()
+        let scopeValues = Set(requiredScopes.map(\.rawValue))
+
+        if let token = tokenStore.load(), token.scopes.isSuperset(of: scopeValues) {
+            if token.isExpired {
+                if let refreshed = try await refreshTokenIfPossible(clientID: clientID, existing: token) {
+                    tokenStore.save(refreshed)
+                    return
+                }
+            } else {
+                return
+            }
+        }
+
+        let freshToken = try await authorize(clientID: clientID, requiredScopes: scopeValues)
+        tokenStore.save(freshToken)
+    }
+
+    private func authorize(clientID: String, requiredScopes: Set<String>) async throws -> SpotifyTokenRecord {
+        let verifier = Self.randomVerifier()
+        let challenge = Self.codeChallenge(for: verifier)
+        let state = UUID().uuidString
+
+        var components = URLComponents(string: "https://accounts.spotify.com/authorize")!
+        var items = [
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "redirect_uri", value: Self.redirectURI),
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
+            URLQueryItem(name: "code_challenge", value: challenge),
+            URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "show_dialog", value: "false")
+        ]
+
+        if requiredScopes.isEmpty == false {
+            items.append(URLQueryItem(name: "scope", value: requiredScopes.sorted().joined(separator: " ")))
+        }
+
+        components.queryItems = items
+
+        let callbackURL = try await authCoordinator.authenticate(with: components.url!, callbackScheme: "cassette-swap")
+        guard let callbackComponents = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
+            throw AppError.message("Spotify returned an invalid callback URL.")
+        }
+
+        if let error = callbackComponents.queryItems?.first(where: { $0.name == "error" })?.value {
+            throw AppError.message("Spotify sign-in failed: \(error).")
+        }
+
+        guard callbackComponents.queryItems?.first(where: { $0.name == "state" })?.value == state else {
+            throw AppError.message("Spotify sign-in returned an invalid state.")
+        }
+
+        guard let code = callbackComponents.queryItems?.first(where: { $0.name == "code" })?.value else {
+            throw AppError.message("Spotify did not return an authorization code.")
+        }
+
+        let tokenResponse: SpotifyTokenResponse = try await tokenRequest(
+            parameters: [
+                "client_id": clientID,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": Self.redirectURI,
+                "code_verifier": verifier
+            ]
+        )
+
+        return SpotifyTokenRecord(
+            accessToken: tokenResponse.accessToken,
+            refreshToken: tokenResponse.refreshToken,
+            expirationDate: Date().addingTimeInterval(TimeInterval(tokenResponse.expiresIn)),
+            scopes: Set((tokenResponse.scope ?? "").split(separator: " ").map(String.init))
+        )
+    }
+
+    private func refreshTokenIfPossible(clientID: String, existing: SpotifyTokenRecord) async throws -> SpotifyTokenRecord? {
+        guard let refreshToken = existing.refreshToken else {
+            return nil
+        }
+
+        let tokenResponse: SpotifyTokenResponse = try await tokenRequest(
+            parameters: [
+                "client_id": clientID,
+                "grant_type": "refresh_token",
+                "refresh_token": refreshToken
+            ]
+        )
+
+        return SpotifyTokenRecord(
+            accessToken: tokenResponse.accessToken,
+            refreshToken: tokenResponse.refreshToken ?? refreshToken,
+            expirationDate: Date().addingTimeInterval(TimeInterval(tokenResponse.expiresIn)),
+            scopes: (tokenResponse.scope ?? "").isEmpty ? existing.scopes : Set((tokenResponse.scope ?? "").split(separator: " ").map(String.init))
+        )
+    }
+
+    private func tokenRequest<Response: Decodable>(parameters: [String: String]) async throws -> Response {
+        var request = URLRequest(url: URL(string: "https://accounts.spotify.com/api/token")!)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Self.formEncodedData(from: parameters)
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AppError.message("Spotify returned an invalid token response.")
+        }
+
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw spotifyError(from: data, fallback: "Spotify token exchange failed.")
+        }
+
+        return try JSONDecoder().decode(Response.self, from: data)
+    }
+
+    private func apiRequest<Response: Decodable>(
+        path: String? = nil,
+        url: URL? = nil,
+        method: String = "GET",
+        body: Data? = nil,
+        contentType: String? = nil,
+        requiredScopes: Set<SpotifyScope> = []
+    ) async throws -> Response {
+        let data = try await rawAPIRequest(
+            path: path,
+            url: url,
+            method: method,
+            body: body,
+            contentType: contentType,
+            requiredScopes: requiredScopes
+        )
+
+        return try JSONDecoder().decode(Response.self, from: data)
+    }
+
+    private func apiRequestWithoutBody(
+        path: String? = nil,
+        url: URL? = nil,
+        method: String = "GET",
+        body: Data? = nil,
+        contentType: String? = nil,
+        requiredScopes: Set<SpotifyScope> = []
+    ) async throws {
+        _ = try await rawAPIRequest(
+            path: path,
+            url: url,
+            method: method,
+            body: body,
+            contentType: contentType,
+            requiredScopes: requiredScopes
+        )
+    }
+
+    private func rawAPIRequest(
+        path: String? = nil,
+        url: URL? = nil,
+        method: String = "GET",
+        body: Data? = nil,
+        contentType: String? = nil,
+        requiredScopes: Set<SpotifyScope> = [],
+        retryingAfterRefresh: Bool = false
+    ) async throws -> Data {
+        try await ensureAuthorized(requiredScopes: requiredScopes)
+
+        guard let token = tokenStore.load()?.accessToken else {
+            throw AppError.message("Spotify is not authorized.")
+        }
+
+        let requestURL: URL
+        if let url {
+            requestURL = url
+        } else if let path, let resolved = URL(string: path, relativeTo: URL(string: "https://api.spotify.com")) {
+            requestURL = resolved
+        } else {
+            throw AppError.message("Spotify request URL was invalid.")
+        }
+
+        var request = URLRequest(url: requestURL)
+        request.httpMethod = method
+        request.httpBody = body
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        if let contentType {
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        }
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AppError.message("Spotify returned an invalid response.")
+        }
+
+        if httpResponse.statusCode == 401 && retryingAfterRefresh == false {
+            let clientID = try validatedClientID()
+            if let existing = tokenStore.load(),
+               let refreshed = try await refreshTokenIfPossible(clientID: clientID, existing: existing) {
+                tokenStore.save(refreshed)
+                return try await rawAPIRequest(
+                    path: path,
+                    url: url,
+                    method: method,
+                    body: body,
+                    contentType: contentType,
+                    requiredScopes: requiredScopes,
+                    retryingAfterRefresh: true
+                )
+            }
+        }
+
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw spotifyError(from: data, fallback: "Spotify returned HTTP \(httpResponse.statusCode).")
+        }
+
+        return data
+    }
+
+    private func spotifyError(from data: Data, fallback: String) -> Error {
+        if let payload = try? JSONDecoder().decode(SpotifyAPIErrorEnvelope.self, from: data) {
+            return AppError.message(payload.error.message ?? fallback)
+        }
+
+        return AppError.message(fallback)
+    }
+
+    private func validatedClientID() throws -> String {
+        let clientID = clientIDProvider().trimmed
+        guard clientID.isEmpty == false else {
+            throw AppError.message("Enter your Spotify client ID first.")
+        }
+        return clientID
+    }
+
+    private static func randomVerifier() -> String {
+        let raw = UUID().uuidString + UUID().uuidString + UUID().uuidString
+        return raw.replacingOccurrences(of: "-", with: "")
+    }
+
+    private static func codeChallenge(for verifier: String) -> String {
+        let data = Data(verifier.utf8)
+        let digest = SHA256.hash(data: data)
+        return Data(digest).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static func formEncodedData(from parameters: [String: String]) -> Data? {
+        let body = parameters
+            .sorted(by: { $0.key < $1.key })
+            .map { key, value in
+                "\(Self.percentEncode(key))=\(Self.percentEncode(value))"
+            }
+            .joined(separator: "&")
+
+        return Data(body.utf8)
+    }
+
+    private static func percentEncode(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "+&="))) ?? value
+    }
+}
+
+private enum SpotifyScope: String {
+    case playlistModifyPublic = "playlist-modify-public"
+    case ugcImageUpload = "ugc-image-upload"
+}
+
+private struct SpotifyTokenRecord: Codable {
+    let accessToken: String
+    let refreshToken: String?
+    let expirationDate: Date
+    let scopes: Set<String>
+
+    var isExpired: Bool {
+        expirationDate <= Date().addingTimeInterval(60)
+    }
+}
+
+private final class SpotifyTokenStore {
+    private let defaultsKey = "cassette_swap.spotify_token"
+
+    func load() -> SpotifyTokenRecord? {
+        guard let data = UserDefaults.standard.data(forKey: defaultsKey) else {
+            return nil
+        }
+
+        return try? JSONDecoder().decode(SpotifyTokenRecord.self, from: data)
+    }
+
+    func save(_ token: SpotifyTokenRecord) {
+        guard let data = try? JSONEncoder().encode(token) else {
+            return
+        }
+
+        UserDefaults.standard.set(data, forKey: defaultsKey)
+    }
+}
+
+private struct SpotifyTokenResponse: Decodable {
+    let accessToken: String
+    let tokenType: String
+    let scope: String?
+    let expiresIn: Int
+    let refreshToken: String?
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case tokenType = "token_type"
+        case scope
+        case expiresIn = "expires_in"
+        case refreshToken = "refresh_token"
+    }
+}
+
+private struct SpotifyPlaylistMetadata: Decodable {
+    let name: String
+    let description: String?
+    let images: [SpotifyImage]
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case description
+        case images
+    }
+}
+
+private struct SpotifyImage: Decodable {
+    let url: URL
+}
+
+private struct SpotifyPlaylistTracksPage: Decodable {
+    let items: [SpotifyPlaylistItem]
+    let total: Int
+}
+
+private struct SpotifyPlaylistItem: Decodable {
+    let track: SpotifyPlaylistTrack?
+}
+
+private struct SpotifyPlaylistTrack: Decodable {
+    let id: String?
+    let name: String
+    let uri: String
+    let type: String
+    let isLocal: Bool?
+    let artists: [SpotifyArtist]
+    let album: SpotifyAlbum?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case uri
+        case type
+        case isLocal = "is_local"
+        case artists
+        case album
+    }
+}
+
+private struct SpotifyArtist: Decodable {
+    let name: String
+}
+
+private struct SpotifyAlbum: Decodable {
+    let name: String
+}
+
+private struct SpotifyTracksEnvelope: Decodable {
+    let tracks: [SpotifyTrackDetail?]
+}
+
+private struct SpotifyTrackDetail: Decodable {
+    let id: String
+    let externalIDs: SpotifyExternalIDs?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case externalIDs = "external_ids"
+    }
+}
+
+private struct SpotifyExternalIDs: Decodable {
+    let isrc: String?
+}
+
+private struct SpotifySearchEnvelope: Decodable {
+    let tracks: SpotifySearchResults
+}
+
+private struct SpotifySearchResults: Decodable {
+    let items: [SpotifySearchTrack]
+}
+
+private struct SpotifySearchTrack: Decodable {
+    let id: String
+    let name: String
+    let uri: String
+    let type: String
+    let artists: [SpotifyArtist]
+    let album: SpotifyAlbum?
+}
+
+private struct SpotifyCreatePlaylistRequest: Encodable {
+    let name: String
+    let description: String?
+    let `public`: Bool
+}
+
+private struct SpotifyCreatedPlaylist: Decodable {
+    let id: String
+    let externalURLs: SpotifyPublicURLs
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case externalURLs = "external_urls"
+    }
+}
+
+private struct SpotifyPublicURLs: Decodable {
+    let spotify: URL?
+}
+
+private struct SpotifyAddTracksRequest: Encodable {
+    let uris: [String]
+}
+
+private struct SpotifyAPIErrorEnvelope: Decodable {
+    let error: SpotifyAPIError
+}
+
+private struct SpotifyAPIError: Decodable {
+    let message: String?
+}
