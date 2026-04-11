@@ -130,7 +130,7 @@ final class SpotifyService {
         let createBody = SpotifyCreatePlaylistRequest(
             name: snapshot.name.truncated(to: 100),
             description: snapshot.summary.truncated(to: 300).nilIfBlank,
-            `public`: true
+            public: true
         )
 
         let payload = try JSONEncoder().encode(createBody)

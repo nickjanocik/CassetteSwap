@@ -50,8 +50,8 @@
 		A10000010000000000000002 = {
 			isa = PBXGroup;
 			children = (
-				A10000010000000000000004,
-				A10000010000000000000003,
+				A10000010000000000000004 /* Cassette Swap */,
+				A10000010000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
@@ -218,7 +218,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 42F969CTG8;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Cassette Swap/Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -227,7 +227,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.nickjanocik.CassetteSwap;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nickjanocik.cassetteswap.dev20260411nj01;
 				PRODUCT_MODULE_NAME = CassetteSwap;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -242,7 +242,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 42F969CTG8;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Cassette Swap/Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -251,7 +251,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.nickjanocik.CassetteSwap;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nickjanocik.cassetteswap.dev20260411nj01;
 				PRODUCT_MODULE_NAME = CassetteSwap;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

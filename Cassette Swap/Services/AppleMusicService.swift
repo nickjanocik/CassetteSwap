@@ -18,8 +18,8 @@ final class AppleMusicService {
 
         appendTracks(from: playlist.relationships?.tracks?.data ?? [], into: &tracks)
 
-        while let nextPath {
-            let pageURL = absoluteURL(from: nextPath)
+        while let currentNextPath = nextPath {
+            let pageURL = absoluteURL(from: currentNextPath)
             let page: AppleTracksPage = try await request(url: pageURL)
             appendTracks(from: page.data, into: &tracks)
             nextPath = page.next
@@ -50,7 +50,7 @@ final class AppleMusicService {
     func resolveTracks(from sourceTracks: [TransferTrack], progress: ProgressHandler? = nil) async throws -> TrackResolution {
         try await ensureAuthorized()
 
-        let storefront = try await MusicDataRequest.currentCountryCode
+        let storefront = try await resolvedCurrentStorefront()
         var matched: [DestinationTrackReference] = []
         var unmatched: [TransferTrack] = []
         var isrcCache: [String: DestinationTrackReference?] = [:]
@@ -211,6 +211,24 @@ final class AppleMusicService {
         guard status == .authorized else {
             throw AppError.message("Apple Music access is required to read or create playlists.")
         }
+    }
+
+    private func resolvedCurrentStorefront() async throws -> String {
+        let rawValue = try await MusicDataRequest.currentCountryCode as Any
+        if let storefront = unwrappedOptional(rawValue) as? String, storefront.isEmpty == false {
+            return storefront
+        }
+
+        throw AppError.message("Apple Music did not provide a storefront country code for this account.")
+    }
+
+    private func unwrappedOptional(_ value: Any) -> Any? {
+        let mirror = Mirror(reflecting: value)
+        guard mirror.displayStyle == .optional else {
+            return value
+        }
+
+        return mirror.children.first?.value
     }
 
     private func absoluteURL(from path: String) -> URL {
