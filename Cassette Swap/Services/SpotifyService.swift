@@ -14,7 +14,8 @@ final class SpotifyService {
     }
 
     func fetchPlaylist(id: String, originalURL: URL) async throws -> PlaylistSnapshot {
-        try await ensureAuthorized(requiredScopes: [])
+        let readScopes: Set<SpotifyScope> = [.playlistReadPrivate, .playlistReadCollaborative]
+        try await ensureAuthorized(requiredScopes: readScopes)
 
         let metadata: SpotifyPlaylistMetadata = try await apiRequest(path: "/v1/playlists/\(id)")
         var tracks: [TransferTrack] = []
@@ -22,36 +23,35 @@ final class SpotifyService {
         let pageSize = 100
 
         while true {
-            let page: SpotifyPlaylistTracksPage = try await apiRequest(path: "/v1/playlists/\(id)/tracks?limit=\(pageSize)&offset=\(offset)")
-            let trackIDs = page.items.compactMap { item -> String? in
-                guard let track = item.track, track.type == "track", track.isLocal != true, let id = track.id else {
-                    return nil
-                }
-                return id
-            }
-
-            let isrcLookup = try await fetchISRCs(for: trackIDs)
-
-            for item in page.items {
-                guard let track = item.track, track.type == "track", track.isLocal != true, let id = track.id else {
-                    continue
-                }
-
-                tracks.append(
-                    TransferTrack(
-                        id: id,
-                        title: track.name,
-                        artistName: track.artists.map(\.name).joined(separator: ", "),
-                        albumTitle: track.album?.name,
-                        isrc: isrcLookup[id],
-                        originalPosition: tracks.count + 1
-                    )
+            do {
+                let page: SpotifyPlaylistItemsPage = try await apiRequest(
+                    path: "/v1/playlists/\(id)/items?limit=\(pageSize)&offset=\(offset)&additional_types=track",
+                    requiredScopes: readScopes
                 )
-            }
 
-            offset += page.items.count
-            if page.items.isEmpty || offset >= page.total {
-                break
+                for entry in page.items {
+                    guard let track = entry.resolvedTrack, track.type == "track", entry.isLocal != true, let id = track.id else {
+                        continue
+                    }
+
+                    tracks.append(
+                        TransferTrack(
+                            id: id,
+                            title: track.name,
+                            artistName: track.artists.map(\.name).joined(separator: ", "),
+                            albumTitle: track.album?.name,
+                            isrc: track.externalIDs?.isrc,
+                            originalPosition: tracks.count + 1
+                        )
+                    )
+                }
+
+                offset += page.items.count
+                if page.items.isEmpty || offset >= page.total {
+                    break
+                }
+            } catch {
+                throw explainPlaylistReadFailure(error)
             }
         }
 
@@ -146,7 +146,7 @@ final class SpotifyService {
         for chunk in uris.chunked(into: 100) {
             let addBody = try JSONEncoder().encode(SpotifyAddTracksRequest(uris: chunk))
             try await apiRequestWithoutBody(
-                path: "/v1/playlists/\(created.id)/tracks",
+                path: "/v1/playlists/\(created.id)/items",
                 method: "POST",
                 body: addBody,
                 contentType: "application/json",
@@ -246,27 +246,6 @@ final class SpotifyService {
 
         let response: SpotifySearchEnvelope = try await apiRequest(url: components.url!)
         return response.tracks.items
-    }
-
-    private func fetchISRCs(for ids: [String]) async throws -> [String: String] {
-        var lookup: [String: String] = [:]
-
-        for chunk in ids.chunked(into: 50) {
-            var components = URLComponents(string: "https://api.spotify.com/v1/tracks")!
-            components.queryItems = [
-                URLQueryItem(name: "ids", value: chunk.joined(separator: ","))
-            ]
-
-            let response: SpotifyTracksEnvelope = try await apiRequest(url: components.url!)
-            for track in response.tracks {
-                guard let track else { continue }
-                if let isrc = track.externalIDs?.isrc {
-                    lookup[track.id] = isrc
-                }
-            }
-        }
-
-        return lookup
     }
 
     private func ensureAuthorized(requiredScopes: Set<SpotifyScope>) async throws {
@@ -500,6 +479,17 @@ final class SpotifyService {
         return clientID
     }
 
+    private func explainPlaylistReadFailure(_ error: Error) -> Error {
+        let message = error.localizedDescription.lowercased()
+        if message.contains("resource not found") || message.contains("forbidden") {
+            return AppError.message(
+                "Spotify Dev Mode can only read playlist items for playlists you own or collaborate on. Try one of your own Spotify playlists."
+            )
+        }
+
+        return error
+    }
+
     private static func randomVerifier() -> String {
         let raw = UUID().uuidString + UUID().uuidString + UUID().uuidString
         return raw.replacingOccurrences(of: "-", with: "")
@@ -531,6 +521,8 @@ final class SpotifyService {
 }
 
 private enum SpotifyScope: String {
+    case playlistReadPrivate = "playlist-read-private"
+    case playlistReadCollaborative = "playlist-read-collaborative"
     case playlistModifyPublic = "playlist-modify-public"
     case ugcImageUpload = "ugc-image-upload"
 }
@@ -598,13 +590,25 @@ private struct SpotifyImage: Decodable {
     let url: URL
 }
 
-private struct SpotifyPlaylistTracksPage: Decodable {
-    let items: [SpotifyPlaylistItem]
+private struct SpotifyPlaylistItemsPage: Decodable {
+    let items: [SpotifyPlaylistPageItem]
     let total: Int
 }
 
-private struct SpotifyPlaylistItem: Decodable {
+private struct SpotifyPlaylistPageItem: Decodable {
+    let item: SpotifyPlaylistTrack?
     let track: SpotifyPlaylistTrack?
+    let isLocal: Bool?
+
+    var resolvedTrack: SpotifyPlaylistTrack? {
+        item ?? track
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case item
+        case track
+        case isLocal = "is_local"
+    }
 }
 
 private struct SpotifyPlaylistTrack: Decodable {
@@ -612,18 +616,18 @@ private struct SpotifyPlaylistTrack: Decodable {
     let name: String
     let uri: String
     let type: String
-    let isLocal: Bool?
     let artists: [SpotifyArtist]
     let album: SpotifyAlbum?
+    let externalIDs: SpotifyExternalIDs?
 
     enum CodingKeys: String, CodingKey {
         case id
         case name
         case uri
         case type
-        case isLocal = "is_local"
         case artists
         case album
+        case externalIDs = "external_ids"
     }
 }
 
@@ -633,20 +637,6 @@ private struct SpotifyArtist: Decodable {
 
 private struct SpotifyAlbum: Decodable {
     let name: String
-}
-
-private struct SpotifyTracksEnvelope: Decodable {
-    let tracks: [SpotifyTrackDetail?]
-}
-
-private struct SpotifyTrackDetail: Decodable {
-    let id: String
-    let externalIDs: SpotifyExternalIDs?
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case externalIDs = "external_ids"
-    }
 }
 
 private struct SpotifyExternalIDs: Decodable {

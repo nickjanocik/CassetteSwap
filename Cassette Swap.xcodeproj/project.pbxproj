@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10000010000000000000029 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000002A /* Assets.xcassets */; };
 		A1000001000000000000001E /* CassetteSwapApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000010000000000000013 /* CassetteSwapApp.swift */; };
 		A1000001000000000000001F /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000010000000000000014 /* ContentView.swift */; };
 		A10000010000000000000020 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000010000000000000015 /* Models.swift */; };
@@ -23,6 +24,7 @@
 /* Begin PBXFileReference section */
 		A10000010000000000000008 /* Cassette Swap.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Cassette Swap.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000010000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1000001000000000000002A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A10000010000000000000013 /* CassetteSwapApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CassetteSwapApp.swift; sourceTree = "<group>"; };
 		A10000010000000000000014 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A10000010000000000000015 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -66,6 +68,7 @@
 		A10000010000000000000004 /* Cassette Swap */ = {
 			isa = PBXGroup;
 			children = (
+				A1000001000000000000002A /* Assets.xcassets */,
 				A10000010000000000000012 /* Info.plist */,
 				A10000010000000000000013 /* CassetteSwapApp.swift */,
 				A10000010000000000000014 /* ContentView.swift */,
@@ -155,6 +158,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000010000000000000029 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -216,6 +220,7 @@
 		A10000010000000000000010 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 42F969CTG8;
@@ -240,6 +245,7 @@
 		A10000010000000000000011 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 42F969CTG8;

@@ -5,33 +5,43 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                setupSection
-                playlistSection
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("Cassette Swap")
+                        .font(.largeTitle.bold())
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                if let snapshot = viewModel.snapshot {
-                    previewSection(snapshot)
+                    setupSection
+                    playlistSection
+
+                    if let snapshot = viewModel.snapshot {
+                        previewSection(snapshot)
+                    }
+
+                    statusSection
+
+                    if !viewModel.activityLog.isEmpty {
+                        activitySection
+                    }
+
+                    if let result = viewModel.transferResult {
+                        resultSection(result)
+                    }
                 }
-
-                statusSection
-
-                if !viewModel.activityLog.isEmpty {
-                    activitySection
-                }
-
-                if let result = viewModel.transferResult {
-                    resultSection(result)
-                }
+                .padding()
             }
+            .background(Color(.systemGroupedBackground))
             .navigationTitle("Cassette Swap")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 
     private var setupSection: some View {
-        Section("Spotify Setup") {
+        card("Spotify Setup") {
             TextField("Spotify client ID", text: $viewModel.spotifyClientID)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .textFieldStyle(.roundedBorder)
 
             Text("Spotify requires OAuth even when the source playlist is public. Register a Spotify app and allow the redirect URI `cassette-swap://spotify-callback`.")
                 .font(.footnote)
@@ -40,10 +50,11 @@ struct ContentView: View {
     }
 
     private var playlistSection: some View {
-        Section("Playlist") {
+        card("Playlist") {
             TextField("Public Spotify or Apple Music playlist URL", text: $viewModel.playlistURLText, axis: .vertical)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .textFieldStyle(.roundedBorder)
 
             Button("Preview Playlist") {
                 viewModel.inspectPlaylist()
@@ -60,7 +71,7 @@ struct ContentView: View {
     }
 
     private func previewSection(_ snapshot: PlaylistSnapshot) -> some View {
-        Section("Preview") {
+        card("Preview") {
             HStack(alignment: .top, spacing: 16) {
                 AsyncImage(url: snapshot.artworkURL) { image in
                     image
@@ -121,26 +132,30 @@ struct ContentView: View {
     }
 
     private var statusSection: some View {
-        Section("Status") {
+        card("Status") {
             Text(viewModel.statusMessage)
 
             if let progress = viewModel.progressValue {
                 ProgressView(value: progress)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
     private var activitySection: some View {
-        Section("Activity") {
-            ForEach(Array(viewModel.activityLog.enumerated()), id: \.offset) { entry in
-                Text(entry.element)
-                    .font(.system(.footnote, design: .monospaced))
+        card("Activity") {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(viewModel.activityLog.enumerated()), id: \.offset) { entry in
+                    Text(entry.element)
+                        .font(.system(.footnote, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }
 
     private func resultSection(_ result: TransferResult) -> some View {
-        Section("Result") {
+        card("Result") {
             Text("Created on \(result.destinationService.displayName).")
 
             if let playlistURL = result.playlistURL {
@@ -164,5 +179,20 @@ struct ContentView: View {
                     .font(.footnote)
             }
         }
+    }
+
+    private func card<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline)
+
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
     }
 }
