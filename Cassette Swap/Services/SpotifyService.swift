@@ -17,15 +17,22 @@ final class SpotifyService {
         let readScopes: Set<SpotifyScope> = [.playlistReadPrivate, .playlistReadCollaborative]
         try await ensureAuthorized(requiredScopes: readScopes)
 
-        let metadata: SpotifyPlaylistMetadata = try await apiRequest(path: "/v1/playlists/\(id)")
+        let metadata: SpotifyPlaylistMetadata
         var tracks: [TransferTrack] = []
+
+        do {
+            metadata = try await apiRequest(path: "/v1/playlists/\(id)?market=from_token")
+        } catch {
+            throw explainPlaylistReadFailure(error)
+        }
+
         var offset = 0
         let pageSize = 100
 
         while true {
             do {
                 let page: SpotifyPlaylistItemsPage = try await apiRequest(
-                    path: "/v1/playlists/\(id)/items?limit=\(pageSize)&offset=\(offset)&additional_types=track",
+                    path: "/v1/playlists/\(id)/items?limit=\(pageSize)&offset=\(offset)&additional_types=track&market=from_token",
                     requiredScopes: readScopes
                 )
 
@@ -439,11 +446,31 @@ final class SpotifyService {
             throw AppError.message("Spotify returned an invalid response.")
         }
 
-        if httpResponse.statusCode == 401 && retryingAfterRefresh == false {
+        #if DEBUG
+        if !(200..<300).contains(httpResponse.statusCode) {
+            let bodyPreview = String(data: data.prefix(500), encoding: .utf8) ?? "(non-text)"
+            print("[SpotifyAPI] \(method) \(requestURL.absoluteString) → HTTP \(httpResponse.statusCode): \(bodyPreview)")
+        }
+        #endif
+
+        if [401, 403, 404].contains(httpResponse.statusCode) && retryingAfterRefresh == false {
             let clientID = try validatedClientID()
-            if let existing = tokenStore.load(),
-               let refreshed = try await refreshTokenIfPossible(clientID: clientID, existing: existing) {
-                tokenStore.save(refreshed)
+            if tokenStore.load() != nil {
+                if httpResponse.statusCode == 401 {
+                    // Try refreshing first for auth failures
+                    if let existing = tokenStore.load(),
+                       let refreshed = try await refreshTokenIfPossible(clientID: clientID, existing: existing) {
+                        tokenStore.save(refreshed)
+                    } else {
+                        let freshToken = try await authorize(clientID: clientID, requiredScopes: Set(requiredScopes.map(\.rawValue)))
+                        tokenStore.save(freshToken)
+                    }
+                } else {
+                    // 403/404: token may be for wrong account or stale — force full re-auth
+                    tokenStore.clear()
+                    let freshToken = try await authorize(clientID: clientID, requiredScopes: Set(requiredScopes.map(\.rawValue)))
+                    tokenStore.save(freshToken)
+                }
                 return try await rawAPIRequest(
                     path: path,
                     url: url,
@@ -555,6 +582,10 @@ private final class SpotifyTokenStore {
         }
 
         UserDefaults.standard.set(data, forKey: defaultsKey)
+    }
+
+    func clear() {
+        UserDefaults.standard.removeObject(forKey: defaultsKey)
     }
 }
 

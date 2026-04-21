@@ -2,7 +2,11 @@ import Foundation
 
 @MainActor
 final class PlaylistTransferViewModel: ObservableObject {
-    @Published var playlistURLText = ""
+    @Published var playlistURLText: String {
+        didSet {
+            UserDefaults.standard.set(playlistURLText.trimmed, forKey: Self.playlistURLDefaultsKey)
+        }
+    }
     @Published var spotifyClientID: String {
         didSet {
             UserDefaults.standard.set(spotifyClientID.trimmed, forKey: Self.spotifyClientIDDefaultsKey)
@@ -17,6 +21,7 @@ final class PlaylistTransferViewModel: ObservableObject {
     @Published private(set) var transferResult: TransferResult?
 
     private static let spotifyClientIDDefaultsKey = "cassette_swap.spotify_client_id"
+    private static let playlistURLDefaultsKey = "cassette_swap.playlist_url"
 
     private let appleMusicService = AppleMusicService()
     private lazy var spotifyService = SpotifyService(clientIDProvider: {
@@ -24,7 +29,8 @@ final class PlaylistTransferViewModel: ObservableObject {
     })
 
     init() {
-        self.spotifyClientID = UserDefaults.standard.string(forKey: Self.spotifyClientIDDefaultsKey) ?? ""
+        self.playlistURLText = UserDefaults.standard.string(forKey: Self.playlistURLDefaultsKey) ?? "https://open.spotify.com/playlist/2lKdPFaeONWBmlkQHncCex?si=4bf51420a306457e"
+        self.spotifyClientID = UserDefaults.standard.string(forKey: Self.spotifyClientIDDefaultsKey) ?? "5c1a3737ee8046df8a340af0a377af19"
     }
 
     var canInspect: Bool {
