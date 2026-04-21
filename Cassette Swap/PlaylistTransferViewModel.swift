@@ -3,17 +3,6 @@ import UIKit
 
 @MainActor
 final class PlaylistTransferViewModel: ObservableObject {
-    @Published var spotifyClientID: String {
-        didSet {
-            UserDefaults.standard.set(spotifyClientID.trimmed, forKey: Self.spotifyClientIDDefaultsKey)
-        }
-    }
-    @Published var shareBackendBaseURL: String {
-        didSet {
-            UserDefaults.standard.set(shareBackendBaseURL.trimmed, forKey: Self.shareBackendBaseURLDefaultsKey)
-        }
-    }
-
     @Published private(set) var signedInAccount: MusicAccount?
     @Published private(set) var playlists: [UserPlaylist] = []
     @Published private(set) var snapshot: PlaylistSnapshot?
@@ -27,19 +16,11 @@ final class PlaylistTransferViewModel: ObservableObject {
     @Published private(set) var shareText: String?
     @Published private(set) var shareSheetRequest: ShareSheetRequest?
 
-    private static let spotifyClientIDDefaultsKey = "cassette_swap.spotify_client_id"
-    private static let shareBackendBaseURLDefaultsKey = "cassette_swap.share_backend_base_url"
-
     private let appleMusicService = AppleMusicService()
     private let cassetteShareService = CassetteShareService()
-    private lazy var spotifyService = SpotifyService(clientIDProvider: {
-        UserDefaults.standard.string(forKey: Self.spotifyClientIDDefaultsKey) ?? ""
-    })
+    private let spotifyService = SpotifyService()
 
-    init() {
-        self.spotifyClientID = UserDefaults.standard.string(forKey: Self.spotifyClientIDDefaultsKey) ?? ""
-        self.shareBackendBaseURL = UserDefaults.standard.string(forKey: Self.shareBackendBaseURLDefaultsKey) ?? ""
-    }
+    init() {}
 
     var needsSignIn: Bool {
         signedInAccount == nil
@@ -97,8 +78,7 @@ final class PlaylistTransferViewModel: ObservableObject {
             return
         }
 
-        let fallbackBaseURL = CassetteShareService.normalizedBaseURL(from: shareBackendBaseURL)
-        guard let reference = CassetteRemoteLinkParser.parse(url, fallbackBaseURL: fallbackBaseURL) else {
+        guard let reference = CassetteRemoteLinkParser.parse(url, fallbackBaseURL: CassetteShareConfiguration.activeBaseURL) else {
             return
         }
 
@@ -323,17 +303,14 @@ final class PlaylistTransferViewModel: ObservableObject {
             let payload = CassettePayload(from: snapshot)
             let shareURL: URL
 
-            if let baseURL = try validatedShareBaseURLIfConfigured() {
-                appendLog("Uploading cassette for public sharing.")
-                let remoteShare = try await cassetteShareService.createShare(for: payload, baseURL: baseURL)
-                shareURL = remoteShare.shareURL
-                statusMessage = "Public cassette link copied. Choose where to share it."
-                appendLog("Generated public cassette \(remoteShare.id).")
-            } else {
-                shareURL = try buildLocalCassetteLink(for: payload)
-                statusMessage = "Cassette link copied. Choose where to share it."
-                appendLog("Generated a local cassette link for \(snapshot.name).")
-            }
+            appendLog("Uploading cassette for public sharing.")
+            let remoteShare = try await cassetteShareService.createShare(
+                for: payload,
+                baseURL: CassetteShareConfiguration.activeBaseURL
+            )
+            shareURL = remoteShare.shareURL
+            statusMessage = "Public cassette link copied. Choose where to share it."
+            appendLog("Generated public cassette \(remoteShare.id).")
 
             let shareString = shareURL.absoluteString
             UIPasteboard.general.string = shareString
@@ -344,33 +321,6 @@ final class PlaylistTransferViewModel: ObservableObject {
             statusMessage = error.localizedDescription
             appendLog("Error: \(error.localizedDescription)")
         }
-    }
-
-    private func buildLocalCassetteLink(for payload: CassettePayload) throws -> URL {
-        let encoded = try payload.encoded()
-        var components = URLComponents()
-        components.scheme = "cassette-swap"
-        components.host = "cassette"
-        components.queryItems = [URLQueryItem(name: "data", value: encoded)]
-
-        guard let url = components.url else {
-            throw AppError.message("Unable to format the cassette link.")
-        }
-
-        return url
-    }
-
-    private func validatedShareBaseURLIfConfigured() throws -> URL? {
-        let trimmed = shareBackendBaseURL.trimmed
-        guard trimmed.isEmpty == false else {
-            return nil
-        }
-
-        guard let url = CassetteShareService.normalizedBaseURL(from: trimmed) else {
-            throw AppError.message("Public share base URL must be a valid http(s) URL.")
-        }
-
-        return url
     }
 
     private func loadIncomingCassette(_ reference: RemoteCassetteReference) async {

@@ -44,6 +44,13 @@ struct ContentView: View {
         .onOpenURL { url in
             viewModel.handleIncomingURL(url)
         }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
+            guard let url = userActivity.webpageURL else {
+                return
+            }
+
+            viewModel.handleIncomingURL(url)
+        }
         .sheet(item: shareSheetBinding) { request in
             ActivityViewController(activityItems: request.items)
         }
@@ -68,24 +75,6 @@ struct ContentView: View {
                     subtitle: "Browse your library playlists with MusicKit.",
                     action: { viewModel.signIn(to: .appleMusic) }
                 )
-                .padding(.horizontal, 20)
-
-                inputCard("Spotify Client ID") {
-                    styledTextField("client id", text: $viewModel.spotifyClientID)
-                    Text("Spotify still requires your app client ID with redirect URI `cassette-swap://spotify-callback`.")
-                        .font(.system(.caption2, design: .rounded))
-                        .foregroundStyle(fadedText)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.horizontal, 20)
-
-                inputCard("Public Share Base URL") {
-                    styledTextField("https://swap.yourdomain.com", text: $viewModel.shareBackendBaseURL)
-                    Text("Optional Cloudflare Worker URL. If set, Transform creates a short public HTTPS link instead of embedding the full cassette payload in the custom scheme.")
-                        .font(.system(.caption2, design: .rounded))
-                        .foregroundStyle(fadedText)
-                        .multilineTextAlignment(.center)
-                }
                 .padding(.horizontal, 20)
 
                 signInButton(

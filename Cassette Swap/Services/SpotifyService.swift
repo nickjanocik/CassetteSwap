@@ -3,15 +3,13 @@ import Foundation
 
 final class SpotifyService {
     static let redirectURI = "cassette-swap://spotify-callback"
+    static let clientID = "5c1a3737ee8046df8a340af0a377af19"
 
-    private let clientIDProvider: () -> String
     private let authCoordinator = SpotifyOAuthCoordinator()
     private let tokenStore = SpotifyTokenStore()
     private let session = URLSession.shared
 
-    init(clientIDProvider: @escaping () -> String) {
-        self.clientIDProvider = clientIDProvider
-    }
+    init() {}
 
     func signIn() async throws -> MusicAccount {
         try await ensureAuthorized(requiredScopes: [.playlistReadPrivate, .playlistReadCollaborative])
@@ -563,11 +561,7 @@ final class SpotifyService {
     }
 
     private func validatedClientID() throws -> String {
-        let clientID = clientIDProvider().trimmed
-        guard clientID.isEmpty == false else {
-            throw AppError.message("Enter your Spotify client ID first.")
-        }
-        return clientID
+        Self.clientID
     }
 
     private func explainPlaylistReadFailure(_ error: Error) -> Error {

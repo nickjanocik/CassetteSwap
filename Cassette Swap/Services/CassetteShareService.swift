@@ -1,5 +1,20 @@
 import Foundation
 
+enum CassetteShareConfiguration {
+    static let productionBaseURL = URL(string: "https://swap.cassettes.cc")!
+
+    #if DEBUG
+    // Set this to a local Worker URL while developing against a local backend.
+    static let developmentBaseURL: URL? = nil
+    #else
+    static let developmentBaseURL: URL? = nil
+    #endif
+
+    static var activeBaseURL: URL {
+        developmentBaseURL ?? productionBaseURL
+    }
+}
+
 struct RemoteCassetteShare {
     let id: String
     let shareURL: URL
@@ -81,7 +96,7 @@ final class CassetteShareService {
 
         guard (200..<300).contains(httpResponse.statusCode) else {
             if let serviceError = try? JSONDecoder().decode(WorkerErrorResponse.self, from: data),
-               let message = serviceError.error.nilIfBlank {
+               let message = serviceError.error?.nilIfBlank {
                 throw AppError.message(message)
             }
 
