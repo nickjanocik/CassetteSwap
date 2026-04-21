@@ -20,7 +20,7 @@ struct ContentView: View {
     }
 
     private var currentPage: Page {
-        if viewModel.snapshot != nil && !viewModel.isWorking {
+        if viewModel.snapshot != nil {
             return .preview
         }
         return .input
@@ -41,9 +41,6 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.35), value: currentPage == .preview)
         .preferredColorScheme(.dark)
-        .onTapGesture {
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        }
     }
 
     // MARK: - Input Page
@@ -80,7 +77,7 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 40)
 
-                if viewModel.isWorking {
+                if viewModel.isWorking && viewModel.snapshot == nil {
                     ProgressView()
                         .tint(hotPink)
                         .scaleEffect(1.2)
@@ -95,7 +92,7 @@ struct ContentView: View {
                 Spacer(minLength: 60)
             }
         }
-        .scrollDismissesKeyboard(.interactively)
+        .scrollDismissesKeyboard(.immediately)
     }
 
     // MARK: - Preview Page
@@ -103,7 +100,8 @@ struct ContentView: View {
     private var previewPage: some View {
         ScrollView {
             VStack(spacing: 20) {
-                Spacer(minLength: 12)
+                Color.clear
+                    .frame(height: 12)
 
                 if let snapshot = viewModel.snapshot {
                     // Artwork
@@ -191,37 +189,19 @@ struct ContentView: View {
                             .padding(.horizontal, 20)
                     }
 
-                    // Action buttons
-                    if !viewModel.isWorking && viewModel.transferResult == nil {
-                        HStack(spacing: 16) {
-                            cancelButton {
-                                withAnimation {
-                                    viewModel.clearState()
-                                }
-                            }
-
-                            actionButton("Transform", icon: "wand.and.stars", disabled: !viewModel.canTransfer) {
-                                viewModel.transferCurrentPlaylist()
-                            }
-                        }
-                        .padding(.horizontal, 20)
-                    }
-
-                    if viewModel.transferResult != nil {
-                        cancelButton(label: "Start Over") {
-                            withAnimation {
-                                viewModel.clearState()
-                            }
-                        }
-                        .padding(.horizontal, 40)
-                    }
+                    Color.clear
+                        .frame(height: previewBottomInsetSpacing)
                 }
 
-                Spacer(minLength: 60)
+                Color.clear
+                    .frame(height: 24)
             }
             .frame(maxWidth: .infinity)
         }
         .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .bottom) {
+            previewBottomBar
+        }
     }
 
     // MARK: - App Title
@@ -521,6 +501,47 @@ struct ContentView: View {
                     )
             )
         }
+    }
+
+    @ViewBuilder
+    private var previewBottomBar: some View {
+        if !viewModel.isWorking && viewModel.transferResult == nil {
+            HStack(spacing: 16) {
+                cancelButton {
+                    withAnimation {
+                        viewModel.clearState()
+                    }
+                }
+
+                actionButton("Transform", icon: "wand.and.stars", disabled: !viewModel.canTransfer) {
+                    viewModel.transferCurrentPlaylist()
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+            .background(bottomBarBackground)
+        } else if viewModel.transferResult != nil {
+            cancelButton(label: "Start Over") {
+                withAnimation {
+                    viewModel.clearState()
+                }
+            }
+            .padding(.horizontal, 40)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+            .background(bottomBarBackground)
+        }
+    }
+
+    private var previewBottomInsetSpacing: CGFloat {
+        viewModel.transferResult == nil ? 96 : 84
+    }
+
+    private var bottomBarBackground: some View {
+        darkBg
+            .opacity(0.96)
+            .ignoresSafeArea()
     }
 
     private func progressBar(_ value: Double) -> some View {
