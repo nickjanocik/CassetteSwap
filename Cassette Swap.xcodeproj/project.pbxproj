@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10000010000000000000029 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000002A /* Assets.xcassets */; };
 		A1000001000000000000001E /* CassetteSwapApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000010000000000000013 /* CassetteSwapApp.swift */; };
 		A1000001000000000000001F /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000010000000000000014 /* ContentView.swift */; };
 		A10000010000000000000020 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000010000000000000015 /* Models.swift */; };
@@ -19,12 +18,12 @@
 		A10000010000000000000026 /* TrackMatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000001B /* TrackMatching.swift */; };
 		A10000010000000000000027 /* URLParsers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000001C /* URLParsers.swift */; };
 		A10000010000000000000028 /* ImageTransferService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000001D /* ImageTransferService.swift */; };
+		A10000010000000000000029 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000002A /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A10000010000000000000008 /* Cassette Swap.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Cassette Swap.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000010000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A1000001000000000000002A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A10000010000000000000013 /* CassetteSwapApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CassetteSwapApp.swift; sourceTree = "<group>"; };
 		A10000010000000000000014 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A10000010000000000000015 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -36,6 +35,7 @@
 		A1000001000000000000001B /* TrackMatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackMatching.swift; sourceTree = "<group>"; };
 		A1000001000000000000001C /* URLParsers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLParsers.swift; sourceTree = "<group>"; };
 		A1000001000000000000001D /* ImageTransferService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageTransferService.swift; sourceTree = "<group>"; };
+		A1000001000000000000002A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -221,6 +221,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 42F969CTG8;
@@ -235,6 +236,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.nickjanocik.cassetteswap.dev20260411nj01;
 				PRODUCT_MODULE_NAME = CassetteSwap;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
@@ -246,6 +248,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 42F969CTG8;
@@ -260,6 +263,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.nickjanocik.cassetteswap.dev20260411nj01;
 				PRODUCT_MODULE_NAME = CassetteSwap;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;

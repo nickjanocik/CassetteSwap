@@ -2,6 +2,77 @@ import Foundation
 import MusicKit
 
 final class AppleMusicService {
+    func signIn() async throws -> MusicAccount {
+        try await ensureAuthorized()
+        return MusicAccount(service: .appleMusic, userID: nil, displayName: "Apple Music")
+    }
+
+    func fetchOwnedPlaylists() async throws -> [UserPlaylist] {
+        try await ensureAuthorized()
+
+        var playlists: [UserPlaylist] = []
+        var nextURL: URL? = URL(string: "https://api.music.apple.com/v1/me/library/playlists?limit=100")!
+
+        while let currentURL = nextURL {
+            let response: AppleLibraryPlaylistsEnvelope = try await request(url: currentURL)
+
+            playlists.append(
+                contentsOf: response.data.map { playlist in
+                    UserPlaylist(
+                        id: playlist.id,
+                        service: .appleMusic,
+                        name: playlist.attributes.name,
+                        summary: playlist.attributes.playlistDescription?.standard?.strippedHTML.nilIfBlank ?? "",
+                        artworkURL: playlist.attributes.artwork?.resolvedURL(width: 600, height: 600),
+                        ownerName: "Apple Music"
+                    )
+                }
+            )
+
+            nextURL = response.next.map(absoluteURL(from:))
+        }
+
+        return playlists
+    }
+
+    func fetchOwnedPlaylist(id: String) async throws -> PlaylistSnapshot {
+        try await ensureAuthorized()
+
+        let escapedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        let url = URL(string: "https://api.music.apple.com/v1/me/library/playlists/\(escapedID)?include=tracks&limit[tracks]=100")!
+        let response: AppleLibraryPlaylistDetailsEnvelope = try await request(url: url)
+
+        guard let playlist = response.data.first else {
+            throw AppError.message("Apple Music did not return that playlist.")
+        }
+
+        var tracks: [TransferTrack] = []
+        appendTracks(from: playlist.relationships?.tracks?.data ?? [], into: &tracks)
+
+        var nextPath = playlist.relationships?.tracks?.next
+        while let currentNextPath = nextPath {
+            let pageURL = absoluteURL(from: currentNextPath)
+            let page: AppleTracksPage = try await request(url: pageURL)
+            appendTracks(from: page.data, into: &tracks)
+            nextPath = page.next
+        }
+
+        return PlaylistSnapshot(
+            id: playlist.id,
+            reference: PlaylistReference(
+                service: .appleMusic,
+                playlistID: playlist.id,
+                storefront: nil,
+                originalURL: URL(string: "https://music.apple.com/library/playlist/\(playlist.id)")!
+            ),
+            name: playlist.attributes.name,
+            summary: playlist.attributes.playlistDescription?.standard?.strippedHTML.nilIfBlank ?? "",
+            artworkURL: playlist.attributes.artwork?.resolvedURL(width: 600, height: 600),
+            tracks: tracks,
+            ownerName: "Apple Music"
+        )
+    }
+
     func fetchPlaylist(storefront: String, id: String, originalURL: URL) async throws -> PlaylistSnapshot {
         try await ensureAuthorized()
 
@@ -34,6 +105,7 @@ final class AppleMusicService {
         .first ?? ""
 
         return PlaylistSnapshot(
+            id: id,
             reference: PlaylistReference(
                 service: .appleMusic,
                 playlistID: id,
@@ -43,7 +115,8 @@ final class AppleMusicService {
             name: playlist.attributes.name,
             summary: summary,
             artworkURL: playlist.attributes.artwork?.resolvedURL(width: 600, height: 600),
-            tracks: tracks
+            tracks: tracks,
+            ownerName: nil
         )
     }
 
@@ -121,7 +194,7 @@ final class AppleMusicService {
 
         let body = try JSONEncoder().encode(requestBody)
         let url = URL(string: "https://api.music.apple.com/v1/me/library/playlists")!
-        let response: AppleLibraryPlaylistEnvelope = try await request(url: url, method: "POST", body: body)
+        let response: AppleCreatedLibraryPlaylistEnvelope = try await request(url: url, method: "POST", body: body)
 
         guard let playlist = response.data.first else {
             throw AppError.message("Apple Music returned an empty playlist creation response.")
@@ -267,7 +340,22 @@ private struct ApplePlaylistEnvelope: Decodable {
     let data: [ApplePlaylistResource]
 }
 
+private struct AppleLibraryPlaylistsEnvelope: Decodable {
+    let data: [AppleLibraryPlaylistResource]
+    let next: String?
+}
+
+private struct AppleLibraryPlaylistDetailsEnvelope: Decodable {
+    let data: [AppleLibraryPlaylistResource]
+}
+
 private struct ApplePlaylistResource: Decodable {
+    let id: String
+    let attributes: ApplePlaylistAttributes
+    let relationships: ApplePlaylistRelationships?
+}
+
+private struct AppleLibraryPlaylistResource: Decodable {
     let id: String
     let attributes: ApplePlaylistAttributes
     let relationships: ApplePlaylistRelationships?
@@ -370,7 +458,7 @@ private struct AppleCreatePlaylistRequest: Encodable {
     }
 }
 
-private struct AppleLibraryPlaylistEnvelope: Decodable {
+private struct AppleCreatedLibraryPlaylistEnvelope: Decodable {
     let data: [AppleLibraryPlaylist]
 }
 

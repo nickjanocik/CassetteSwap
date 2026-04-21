@@ -1,21 +1,18 @@
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @StateObject private var viewModel = PlaylistTransferViewModel()
-    @State private var sourceService: MusicService = .spotify
 
-    // Pink/blue palette
     private let hotPink = Color(red: 1.0, green: 0.33, blue: 0.64)
     private let electricBlue = Color(red: 0.35, green: 0.65, blue: 1.0)
     private let darkBg = Color(red: 0.06, green: 0.04, blue: 0.12)
     private let cardBg = Color(red: 0.1, green: 0.08, blue: 0.18)
     private let fadedText = Color(red: 0.6, green: 0.55, blue: 0.7)
 
-    private var accent: Color { hotPink }
-    private var secondary: Color { electricBlue }
-
     private enum Page {
-        case input
+        case signIn
+        case library
         case preview
     }
 
@@ -23,7 +20,10 @@ struct ContentView: View {
         if viewModel.snapshot != nil {
             return .preview
         }
-        return .input
+        if viewModel.needsSignIn {
+            return .signIn
+        }
+        return .library
     }
 
     var body: some View {
@@ -31,80 +31,117 @@ struct ContentView: View {
             darkBg.ignoresSafeArea()
 
             switch currentPage {
-            case .input:
-                inputPage
-                    .transition(.opacity.combined(with: .move(edge: .leading)))
+            case .signIn:
+                signInPage
+            case .library:
+                libraryPage
             case .preview:
                 previewPage
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
         }
-        .animation(.easeInOut(duration: 0.35), value: currentPage == .preview)
+        .animation(.easeInOut(duration: 0.3), value: currentPage)
         .preferredColorScheme(.dark)
+        .onOpenURL { url in
+            viewModel.handleIncomingURL(url)
+        }
+        .sheet(item: shareSheetBinding) { request in
+            ActivityViewController(activityItems: request.items)
+        }
     }
 
-    // MARK: - Input Page
-
-    private var inputPage: some View {
+    private var signInPage: some View {
         ScrollView {
-            VStack(spacing: 28) {
-                Spacer(minLength: 20)
-
+            VStack(spacing: 24) {
+                Spacer(minLength: 24)
                 appTitle
+                Text("Sign in with the streaming account you want to use for sending or accepting cassettes.")
+                    .font(.system(.callout, design: .rounded))
+                    .foregroundStyle(fadedText)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
 
-                directionSwitch
+                incomingCassetteCard
                     .padding(.horizontal, 20)
 
-                if sourceService == .spotify {
-                    inputCard("Spotify Client ID") {
-                        styledTextField("client id", text: $viewModel.spotifyClientID)
-                        Text("Register a Spotify app with redirect URI\ncassette-swap://spotify-callback")
-                            .font(.system(.caption2, design: .rounded))
-                            .foregroundStyle(fadedText)
-                            .multilineTextAlignment(.center)
+                signInButton(
+                    title: "Continue with Apple Music",
+                    subtitle: "Browse your library playlists with MusicKit.",
+                    action: { viewModel.signIn(to: .appleMusic) }
+                )
+                .padding(.horizontal, 20)
+
+                inputCard("Spotify Client ID") {
+                    styledTextField("client id", text: $viewModel.spotifyClientID)
+                    Text("Spotify still requires your app client ID with redirect URI `cassette-swap://spotify-callback`.")
+                        .font(.system(.caption2, design: .rounded))
+                        .foregroundStyle(fadedText)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 20)
+
+                signInButton(
+                    title: "Continue with Spotify",
+                    subtitle: "Browse the public playlists you own.",
+                    action: { viewModel.signIn(to: .spotify) }
+                )
+                .padding(.horizontal, 20)
+
+                statusSection
+                    .padding(.horizontal, 20)
+
+                Spacer(minLength: 40)
+            }
+        }
+    }
+
+    private var libraryPage: some View {
+        ScrollView {
+            VStack(spacing: 22) {
+                Spacer(minLength: 16)
+
+                headerCard
+                    .padding(.horizontal, 20)
+
+                incomingCassetteCard
+                    .padding(.horizontal, 20)
+
+                if viewModel.isWorking {
+                    ProgressView()
+                        .tint(hotPink)
+                        .scaleEffect(1.15)
+                }
+
+                if viewModel.playlists.isEmpty {
+                    emptyPlaylistsCard
+                        .padding(.horizontal, 20)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 16)], spacing: 16) {
+                        ForEach(viewModel.playlists) { playlist in
+                            Button {
+                                viewModel.selectPlaylist(playlist)
+                            } label: {
+                                playlistTile(playlist)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                     .padding(.horizontal, 20)
                 }
 
-                inputCard("Playlist URL") {
-                    let hint = sourceService == .spotify ? "paste spotify link" : "paste apple music link"
-                    styledTextField(hint, text: $viewModel.playlistURLText, axis: .vertical)
-                }
-                .padding(.horizontal, 20)
+                statusSection
+                    .padding(.horizontal, 20)
 
-                actionButton("Preview", icon: "magnifyingglass", disabled: !viewModel.canInspect) {
-                    viewModel.inspectPlaylist()
-                }
-                .padding(.horizontal, 40)
-
-                if viewModel.isWorking && viewModel.snapshot == nil {
-                    ProgressView()
-                        .tint(hotPink)
-                        .scaleEffect(1.2)
-                        .padding(.top, 8)
-                }
-
-                if !viewModel.activityLog.isEmpty && viewModel.snapshot == nil {
-                    logSection
-                        .padding(.horizontal, 20)
-                }
-
-                Spacer(minLength: 60)
+                Spacer(minLength: 30)
             }
         }
-        .scrollDismissesKeyboard(.immediately)
     }
-
-    // MARK: - Preview Page
 
     private var previewPage: some View {
         ScrollView {
             VStack(spacing: 20) {
-                Color.clear
-                    .frame(height: 12)
+                Color.clear.frame(height: 12)
 
                 if let snapshot = viewModel.snapshot {
-                    // Artwork
                     AsyncImage(url: snapshot.artworkURL) { image in
                         image.resizable().scaledToFill()
                     } placeholder: {
@@ -125,25 +162,13 @@ struct ContentView: View {
                                 lineWidth: 2
                             )
                     )
-                    .shadow(color: hotPink.opacity(0.3), radius: 20, y: 8)
 
-                    // Title
                     Text(snapshot.name)
                         .font(.system(.title2, design: .rounded).bold())
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
 
-                    // Direction badge
-                    HStack(spacing: 6) {
-                        Text(snapshot.sourceService.displayName)
-                            .foregroundStyle(hotPink)
-                        Image(systemName: "arrow.right")
-                            .font(.caption2.bold())
-                            .foregroundStyle(fadedText)
-                        Text(snapshot.destinationService.displayName)
-                            .foregroundStyle(electricBlue)
-                    }
-                    .font(.system(.caption, design: .rounded).bold())
+                    sourceBadge(snapshot)
 
                     Text("\(snapshot.tracks.count) tracks")
                         .font(.system(.caption, design: .rounded))
@@ -157,15 +182,14 @@ struct ContentView: View {
                             .padding(.horizontal, 30)
                     }
 
-                    // Track list
                     trackListCard(snapshot.tracks)
                         .padding(.horizontal, 20)
 
-                    // Progress / status during transfer
                     if viewModel.isWorking {
                         VStack(spacing: 10) {
                             ProgressView()
                                 .tint(hotPink)
+
                             Text(viewModel.statusMessage)
                                 .font(.system(.caption2, design: .rounded))
                                 .foregroundStyle(fadedText)
@@ -176,12 +200,6 @@ struct ContentView: View {
                                     .padding(.horizontal, 40)
                             }
                         }
-                        .padding(.top, 4)
-                    }
-
-                    if !viewModel.activityLog.isEmpty {
-                        logSection
-                            .padding(.horizontal, 20)
                     }
 
                     if let result = viewModel.transferResult {
@@ -189,41 +207,34 @@ struct ContentView: View {
                             .padding(.horizontal, 20)
                     }
 
-                    Color.clear
-                        .frame(height: previewBottomInsetSpacing)
-                }
+                    if !viewModel.activityLog.isEmpty {
+                        logSection
+                            .padding(.horizontal, 20)
+                    }
 
-                Color.clear
-                    .frame(height: 24)
+                    Color.clear.frame(height: 104)
+                }
             }
             .frame(maxWidth: .infinity)
         }
-        .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) {
             previewBottomBar
         }
     }
 
-    // MARK: - App Title
-
     private var appTitle: some View {
         VStack(spacing: 2) {
             Text("cassette")
                 .font(.system(size: 42, weight: .heavy, design: .rounded))
-                .foregroundStyle(
-                    LinearGradient(colors: [hotPink, hotPink.opacity(0.8)], startPoint: .leading, endPoint: .trailing)
-                )
+                .foregroundStyle(LinearGradient(colors: [hotPink, hotPink.opacity(0.8)], startPoint: .leading, endPoint: .trailing))
             Text("swap")
                 .font(.system(size: 42, weight: .heavy, design: .rounded))
-                .foregroundStyle(
-                    LinearGradient(colors: [electricBlue, electricBlue.opacity(0.8)], startPoint: .leading, endPoint: .trailing)
-                )
+                .foregroundStyle(LinearGradient(colors: [electricBlue, electricBlue.opacity(0.8)], startPoint: .leading, endPoint: .trailing))
 
-            // Decorative line
             HStack(spacing: 3) {
-                ForEach(0..<20, id: \.self) { i in
+                ForEach(0..<20, id: \.self) { index in
                     Circle()
-                        .fill(i % 2 == 0 ? hotPink.opacity(0.5) : electricBlue.opacity(0.5))
+                        .fill(index.isMultiple(of: 2) ? hotPink.opacity(0.5) : electricBlue.opacity(0.5))
                         .frame(width: 4, height: 4)
                 }
             }
@@ -231,51 +242,145 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Direction Switch
+    private var headerCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(viewModel.signedInAccount?.service.displayName ?? "")
+                .font(.system(.caption, design: .rounded).bold())
+                .foregroundStyle(hotPink)
+            Text(viewModel.signedInAccount?.displayName ?? "")
+                .font(.system(.title3, design: .rounded).bold())
+                .foregroundStyle(.white)
+            Text("Choose a playlist to turn into a cassette.")
+                .font(.system(.caption, design: .rounded))
+                .foregroundStyle(fadedText)
 
-    private var directionSwitch: some View {
-        HStack(spacing: 0) {
-            switchTab(.spotify)
-            switchTab(.appleMusic)
-        }
-        .padding(4)
-        .background(
-            Capsule().fill(Color.white.opacity(0.06))
-        )
-    }
-
-    private func switchTab(_ service: MusicService) -> some View {
-        let isSelected = sourceService == service
-        let label = service == .spotify ? "Spotify" : "Apple Music"
-        let dest = service.otherService.displayName
-
-        return Button {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                sourceService = service
-            }
-            if viewModel.snapshot != nil {
-                viewModel.clearState()
-            }
-        } label: {
-            VStack(spacing: 2) {
-                Text("\(label) \(Image(systemName: "arrow.right")) \(dest)")
+            Button {
+                viewModel.refreshOwnedPlaylists()
+            } label: {
+                Text("Refresh Playlists")
                     .font(.system(.caption, design: .rounded).bold())
+                    .foregroundStyle(electricBlue)
             }
-            .padding(.vertical, 10)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(cardBackground)
+    }
+
+    @ViewBuilder
+    private var incomingCassetteCard: some View {
+        if let pendingCassette = viewModel.pendingCassette {
+            VStack(spacing: 12) {
+                Text("Incoming Cassette")
+                    .font(.system(.caption, design: .rounded).bold())
+                    .foregroundStyle(hotPink)
+
+                Text(pendingCassette.name)
+                    .font(.system(.headline, design: .rounded).bold())
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Text("From \(pendingCassette.senderName ?? pendingCassette.sourceService.displayName)")
+                    .font(.system(.caption, design: .rounded))
+                    .foregroundStyle(fadedText)
+
+                Button {
+                    viewModel.acceptIncomingCassette()
+                } label: {
+                    Text(viewModel.needsSignIn ? "Sign In to Accept" : "Accept Cassette")
+                        .font(.system(.callout, design: .rounded).bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(.white)
+                        .background(
+                            Capsule()
+                                .fill(LinearGradient(colors: [hotPink, electricBlue], startPoint: .leading, endPoint: .trailing))
+                        )
+                }
+                .disabled(viewModel.needsSignIn || viewModel.isWorking)
+                .opacity(viewModel.needsSignIn ? 0.5 : 1)
+            }
             .frame(maxWidth: .infinity)
-            .foregroundStyle(isSelected ? .white : fadedText)
-            .background(
-                Capsule()
-                    .fill(
-                        isSelected
-                            ? LinearGradient(colors: [hotPink.opacity(0.7), electricBlue.opacity(0.7)], startPoint: .leading, endPoint: .trailing)
-                            : LinearGradient(colors: [.clear], startPoint: .leading, endPoint: .trailing)
-                    )
-            )
+            .padding(16)
+            .background(cardBackground)
         }
     }
 
-    // MARK: - Track List
+    private var emptyPlaylistsCard: some View {
+        VStack(spacing: 8) {
+            Text("No playlists yet")
+                .font(.system(.headline, design: .rounded).bold())
+                .foregroundStyle(.white)
+            Text(viewModel.statusMessage)
+                .font(.system(.caption, design: .rounded))
+                .foregroundStyle(fadedText)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(20)
+        .background(cardBackground)
+    }
+
+    private func playlistTile(_ playlist: UserPlaylist) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            GeometryReader { geometry in
+                let side = geometry.size.width
+
+                AsyncImage(url: playlist.artworkURL) { image in
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: side, height: side)
+                        .clipped()
+                } placeholder: {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.white.opacity(0.06))
+                        Image(systemName: "music.note.list")
+                            .font(.system(size: 28))
+                            .foregroundStyle(fadedText)
+                    }
+                    .frame(width: side, height: side)
+                }
+            }
+            .aspectRatio(1, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+
+            Text(playlist.name)
+                .font(.system(.callout, design: .rounded).bold())
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, minHeight: 42, alignment: .topLeading)
+
+            Text(playlist.summary.nilIfBlank ?? "Owned playlist")
+                .font(.system(.caption2, design: .rounded))
+                .foregroundStyle(fadedText)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+        .background(cardBackground)
+    }
+
+    private func sourceBadge(_ snapshot: PlaylistSnapshot) -> some View {
+        HStack(spacing: 6) {
+            Text(snapshot.sourceService.displayName)
+                .foregroundStyle(hotPink)
+            if let destination = viewModel.signedInAccount?.service {
+                Image(systemName: "arrow.right")
+                    .font(.caption2.bold())
+                    .foregroundStyle(fadedText)
+                Text(destination.displayName)
+                    .foregroundStyle(electricBlue)
+            }
+        }
+        .font(.system(.caption, design: .rounded).bold())
+    }
 
     private func trackListCard(_ tracks: [TransferTrack]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -315,25 +420,14 @@ struct ContentView: View {
             }
         }
         .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(cardBg)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
-                )
-        )
+        .background(cardBackground)
     }
-
-    // MARK: - Result Card
 
     private func resultCard(_ result: TransferResult) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 36))
-                .foregroundStyle(
-                    LinearGradient(colors: [hotPink, electricBlue], startPoint: .topLeading, endPoint: .bottomTrailing)
-                )
+                .foregroundStyle(LinearGradient(colors: [hotPink, electricBlue], startPoint: .topLeading, endPoint: .bottomTrailing))
 
             Text("Created on \(result.destinationService.displayName)")
                 .font(.system(.subheadline, design: .rounded).bold())
@@ -354,48 +448,40 @@ struct ContentView: View {
                 .font(.system(.caption, design: .rounded))
                 .foregroundStyle(fadedText)
 
-            if result.artworkCopied {
-                Text("Artwork copied")
-                    .font(.system(.caption2, design: .rounded))
-                    .foregroundStyle(fadedText)
-            }
-
             ForEach(result.notes, id: \.self) { note in
                 Text(note)
                     .font(.system(.caption2, design: .rounded))
                     .foregroundStyle(fadedText)
                     .multilineTextAlignment(.center)
             }
-
-            if !result.unmatched.isEmpty {
-                VStack(spacing: 4) {
-                    Text("Unmatched")
-                        .font(.system(.caption2, design: .rounded).bold())
-                        .foregroundStyle(hotPink.opacity(0.7))
-                    ForEach(result.unmatched.prefix(5), id: \.id) { track in
-                        Text("\(track.artistName) — \(track.title)")
-                            .font(.system(.caption2, design: .rounded))
-                            .foregroundStyle(fadedText)
-                    }
-                }
-            }
         }
         .frame(maxWidth: .infinity)
         .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(cardBg)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(
-                            LinearGradient(colors: [hotPink.opacity(0.3), electricBlue.opacity(0.3)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                            lineWidth: 1
-                        )
-                )
-        )
+        .background(cardBackground)
     }
 
-    // MARK: - Log Section
+    private var statusSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("status")
+                .font(.system(.caption2, design: .rounded).bold())
+                .foregroundStyle(fadedText)
+
+            Text(viewModel.statusMessage)
+                .font(.system(.caption, design: .rounded))
+                .foregroundStyle(.white)
+
+            if !viewModel.activityLog.isEmpty {
+                ForEach(Array(viewModel.activityLog.enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(.system(.caption2, design: .rounded))
+                        .foregroundStyle(fadedText)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(cardBackground)
+    }
 
     private var logSection: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -413,36 +499,45 @@ struct ContentView: View {
             }
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(cardBg)
-        )
+        .background(cardBackground)
     }
-
-    // MARK: - Components
 
     private func inputCard(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(spacing: 10) {
             Text(title.lowercased())
                 .font(.system(.caption, design: .rounded).bold())
                 .foregroundStyle(fadedText)
-
             content()
         }
         .frame(maxWidth: .infinity)
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(cardBg)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
-                )
-        )
+        .background(cardBackground)
     }
 
-    private func styledTextField(_ placeholder: String, text: Binding<String>, axis: Axis = .horizontal) -> some View {
-        TextField(placeholder, text: text, axis: axis)
+    private func signInButton(title: String, subtitle: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Text(title)
+                    .font(.system(.callout, design: .rounded).bold())
+                Text(subtitle)
+                    .font(.system(.caption2, design: .rounded))
+                    .multilineTextAlignment(.center)
+                    .opacity(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .foregroundStyle(.white)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(LinearGradient(colors: [hotPink, electricBlue], startPoint: .topLeading, endPoint: .bottomTrailing))
+            )
+        }
+        .disabled(viewModel.isWorking)
+        .opacity(viewModel.isWorking ? 0.6 : 1)
+    }
+
+    private func styledTextField(_ placeholder: String, text: Binding<String>) -> some View {
+        TextField(placeholder, text: text)
             .font(.system(.callout, design: .rounded))
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
@@ -459,100 +554,84 @@ struct ContentView: View {
             .foregroundStyle(.white)
     }
 
-    private func actionButton(_ label: String, icon: String, disabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(.caption, design: .rounded).bold())
-                Text(label)
-                    .font(.system(.callout, design: .rounded).bold())
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .foregroundStyle(.white)
-            .background(
-                Capsule()
-                    .fill(
-                        LinearGradient(colors: [hotPink, electricBlue], startPoint: .leading, endPoint: .trailing)
-                    )
-            )
-            .shadow(color: hotPink.opacity(disabled ? 0 : 0.3), radius: 12, y: 4)
-        }
-        .disabled(disabled)
-        .opacity(disabled ? 0.4 : 1)
-    }
-
-    private func cancelButton(label: String = "Cancel", action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.left")
-                    .font(.system(.caption2, design: .rounded).bold())
-                Text(label)
-                    .font(.system(.callout, design: .rounded).bold())
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .foregroundStyle(.white)
-            .background(
-                Capsule()
-                    .fill(Color.white.opacity(0.08))
-                    .overlay(
-                        Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1)
-                    )
-            )
-        }
-    }
-
     @ViewBuilder
     private var previewBottomBar: some View {
-        if !viewModel.isWorking && viewModel.transferResult == nil {
-            HStack(spacing: 16) {
-                cancelButton {
-                    withAnimation {
-                        viewModel.clearState()
-                    }
-                }
+        HStack(spacing: 16) {
+            Button {
+                viewModel.backToLibrary()
+            } label: {
+                Text("Back")
+                    .font(.system(.callout, design: .rounded).bold())
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .foregroundStyle(.white)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(0.08))
+                    )
+            }
 
-                actionButton("Transform", icon: "wand.and.stars", disabled: !viewModel.canTransfer) {
-                    viewModel.transferCurrentPlaylist()
-                }
+            Button {
+                viewModel.transformCurrentPlaylist()
+            } label: {
+                Text("Transform")
+                    .font(.system(.callout, design: .rounded).bold())
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .foregroundStyle(.white)
+                    .background(
+                        Capsule()
+                            .fill(LinearGradient(colors: [hotPink, electricBlue], startPoint: .leading, endPoint: .trailing))
+                    )
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-            .background(bottomBarBackground)
-        } else if viewModel.transferResult != nil {
-            cancelButton(label: "Start Over") {
-                withAnimation {
-                    viewModel.clearState()
-                }
-            }
-            .padding(.horizontal, 40)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-            .background(bottomBarBackground)
+            .disabled(!viewModel.canTransform)
+            .opacity(viewModel.canTransform ? 1 : 0.5)
         }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .background(darkBg.opacity(0.96).ignoresSafeArea())
     }
 
-    private var previewBottomInsetSpacing: CGFloat {
-        viewModel.transferResult == nil ? 96 : 84
-    }
-
-    private var bottomBarBackground: some View {
-        darkBg
-            .opacity(0.96)
-            .ignoresSafeArea()
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(cardBg)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
+            )
     }
 
     private func progressBar(_ value: Double) -> some View {
-        GeometryReader { geo in
+        GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.08))
                 Capsule()
                     .fill(LinearGradient(colors: [hotPink, electricBlue], startPoint: .leading, endPoint: .trailing))
-                    .frame(width: geo.size.width * value)
+                    .frame(width: geometry.size.width * value)
             }
         }
         .frame(height: 6)
     }
+
+    private var shareSheetBinding: Binding<ShareSheetRequest?> {
+        Binding(
+            get: { viewModel.shareSheetRequest },
+            set: { newValue in
+                if newValue == nil {
+                    viewModel.clearShareSheetRequest()
+                }
+            }
+        )
+    }
+}
+
+private struct ActivityViewController: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

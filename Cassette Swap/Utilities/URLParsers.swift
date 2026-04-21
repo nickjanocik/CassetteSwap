@@ -56,6 +56,21 @@ enum PlaylistLinkParser {
     }
 }
 
+enum CassetteDeepLinkParser {
+    static func parse(_ url: URL) -> CassettePayload? {
+        guard url.scheme == "cassette-swap", url.host == "cassette" else {
+            return nil
+        }
+
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let dataParam = components.queryItems?.first(where: { $0.name == "data" })?.value else {
+            return nil
+        }
+
+        return try? CassettePayload.decode(from: dataParam)
+    }
+}
+
 extension Array {
     func chunked(into size: Int) -> [[Element]] {
         guard size > 0 else { return [] }

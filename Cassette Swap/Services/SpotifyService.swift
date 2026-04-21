@@ -13,6 +13,63 @@ final class SpotifyService {
         self.clientIDProvider = clientIDProvider
     }
 
+    func signIn() async throws -> MusicAccount {
+        try await ensureAuthorized(requiredScopes: [.playlistReadPrivate, .playlistReadCollaborative])
+        let profile = try await fetchCurrentUserProfile()
+        return MusicAccount(service: .spotify, userID: profile.id, displayName: profile.displayName ?? profile.id)
+    }
+
+    func fetchOwnedPlaylists() async throws -> [UserPlaylist] {
+        let profile = try await fetchCurrentUserProfile()
+        var playlists: [UserPlaylist] = []
+        var offset = 0
+        let pageSize = 50
+
+        while true {
+            let page: SpotifyCurrentUserPlaylistsPage = try await apiRequest(
+                path: "/v1/me/playlists?limit=\(pageSize)&offset=\(offset)",
+                requiredScopes: [.playlistReadPrivate, .playlistReadCollaborative]
+            )
+
+            let ownedPublic = page.items
+                .filter { $0.owner?.id == profile.id && $0.isPublic != false }
+                .map {
+                    UserPlaylist(
+                        id: $0.id,
+                        service: .spotify,
+                        name: $0.name,
+                        summary: ($0.description ?? "").strippedHTML,
+                        artworkURL: $0.images.first?.url,
+                        ownerName: profile.displayName ?? profile.id
+                    )
+                }
+
+            playlists.append(contentsOf: ownedPublic)
+            offset += page.items.count
+
+            if page.next == nil || page.items.isEmpty {
+                break
+            }
+        }
+
+        return playlists
+    }
+
+    func fetchOwnedPlaylist(id: String) async throws -> PlaylistSnapshot {
+        let profile = try await fetchCurrentUserProfile()
+        let snapshot = try await fetchPlaylist(id: id, originalURL: URL(string: "https://open.spotify.com/playlist/\(id)")!)
+
+        return PlaylistSnapshot(
+            id: snapshot.id,
+            reference: snapshot.reference,
+            name: snapshot.name,
+            summary: snapshot.summary,
+            artworkURL: snapshot.artworkURL,
+            tracks: snapshot.tracks,
+            ownerName: profile.displayName ?? profile.id
+        )
+    }
+
     func fetchPlaylist(id: String, originalURL: URL) async throws -> PlaylistSnapshot {
         let readScopes: Set<SpotifyScope> = [.playlistReadPrivate, .playlistReadCollaborative]
         try await ensureAuthorized(requiredScopes: readScopes)
@@ -63,6 +120,7 @@ final class SpotifyService {
         }
 
         return PlaylistSnapshot(
+            id: id,
             reference: PlaylistReference(
                 service: .spotify,
                 playlistID: id,
@@ -72,7 +130,8 @@ final class SpotifyService {
             name: metadata.name,
             summary: (metadata.description ?? "").strippedHTML,
             artworkURL: metadata.images.first?.url,
-            tracks: tracks
+            tracks: tracks,
+            ownerName: nil
         )
     }
 
@@ -253,6 +312,11 @@ final class SpotifyService {
 
         let response: SpotifySearchEnvelope = try await apiRequest(url: components.url!)
         return response.tracks.items
+    }
+
+    private func fetchCurrentUserProfile() async throws -> SpotifyCurrentUserProfile {
+        try await ensureAuthorized(requiredScopes: [.playlistReadPrivate, .playlistReadCollaborative])
+        return try await apiRequest(path: "/v1/me", requiredScopes: [.playlistReadPrivate, .playlistReadCollaborative])
     }
 
     private func ensureAuthorized(requiredScopes: Set<SpotifyScope>) async throws {
@@ -617,8 +681,93 @@ private struct SpotifyPlaylistMetadata: Decodable {
     }
 }
 
+private struct SpotifyCurrentUserProfile: Decodable {
+    let id: String
+    let displayName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case displayName = "display_name"
+    }
+}
+
+private struct SpotifyCurrentUserPlaylistsPage: Decodable {
+    let items: [SpotifyOwnedPlaylist]
+    let next: String?
+
+    enum CodingKeys: String, CodingKey {
+        case items
+        case next
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = try container.decodeIfPresent([SpotifyOwnedPlaylist].self, forKey: .items) ?? []
+        next = try container.decodeIfPresent(String.self, forKey: .next)
+    }
+}
+
+private struct SpotifyOwnedPlaylist: Decodable {
+    let id: String
+    let name: String
+    let description: String?
+    let images: [SpotifyImage]
+    let owner: SpotifyPlaylistOwner?
+    let isPublic: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case description
+        case images
+        case owner
+        case isPublic = "public"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Untitled Playlist"
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        images = try container.decodeIfPresent([SpotifyImage].self, forKey: .images) ?? []
+        owner = try container.decodeIfPresent(SpotifyPlaylistOwner.self, forKey: .owner)
+        isPublic = try container.decodeIfPresent(Bool.self, forKey: .isPublic)
+    }
+}
+
+private struct SpotifyPlaylistOwner: Decodable {
+    let id: String
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let raw = try? container.decode([String: String].self), let id = raw["id"], !id.isEmpty {
+            self.id = id
+        } else {
+            let keyed = try decoder.container(keyedBy: CodingKeys.self)
+            self.id = try keyed.decodeIfPresent(String.self, forKey: .id) ?? ""
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+    }
+}
+
 private struct SpotifyImage: Decodable {
-    let url: URL
+    let url: URL?
+
+    enum CodingKeys: String, CodingKey {
+        case url
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let urlString = try container.decodeIfPresent(String.self, forKey: .url) {
+            url = URL(string: urlString)
+        } else {
+            url = nil
+        }
+    }
 }
 
 private struct SpotifyPlaylistItemsPage: Decodable {

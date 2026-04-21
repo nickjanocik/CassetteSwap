@@ -1,27 +1,28 @@
 import Foundation
+import UIKit
 
 @MainActor
 final class PlaylistTransferViewModel: ObservableObject {
-    @Published var playlistURLText: String {
-        didSet {
-            UserDefaults.standard.set(playlistURLText.trimmed, forKey: Self.playlistURLDefaultsKey)
-        }
-    }
     @Published var spotifyClientID: String {
         didSet {
             UserDefaults.standard.set(spotifyClientID.trimmed, forKey: Self.spotifyClientIDDefaultsKey)
         }
     }
 
+    @Published private(set) var signedInAccount: MusicAccount?
+    @Published private(set) var playlists: [UserPlaylist] = []
     @Published private(set) var snapshot: PlaylistSnapshot?
+    @Published private(set) var pendingCassette: CassettePayload?
     @Published private(set) var isWorking = false
-    @Published private(set) var statusMessage = "Paste a public playlist URL to begin."
+    @Published private(set) var statusMessage = "Sign in to browse your playlists."
     @Published private(set) var progressValue: Double?
     @Published private(set) var activityLog: [String] = []
     @Published private(set) var transferResult: TransferResult?
+    @Published private(set) var shareURL: URL?
+    @Published private(set) var shareText: String?
+    @Published private(set) var shareSheetRequest: ShareSheetRequest?
 
     private static let spotifyClientIDDefaultsKey = "cassette_swap.spotify_client_id"
-    private static let playlistURLDefaultsKey = "cassette_swap.playlist_url"
 
     private let appleMusicService = AppleMusicService()
     private lazy var spotifyService = SpotifyService(clientIDProvider: {
@@ -29,103 +30,226 @@ final class PlaylistTransferViewModel: ObservableObject {
     })
 
     init() {
-        self.playlistURLText = UserDefaults.standard.string(forKey: Self.playlistURLDefaultsKey) ?? "https://open.spotify.com/playlist/2lKdPFaeONWBmlkQHncCex?si=4bf51420a306457e"
-        self.spotifyClientID = UserDefaults.standard.string(forKey: Self.spotifyClientIDDefaultsKey) ?? "5c1a3737ee8046df8a340af0a377af19"
+        self.spotifyClientID = UserDefaults.standard.string(forKey: Self.spotifyClientIDDefaultsKey) ?? ""
     }
 
-    func clearState() {
-        snapshot = nil
-        transferResult = nil
-        progressValue = nil
-        activityLog.removeAll()
-        statusMessage = "Paste a public playlist URL to begin."
+    var needsSignIn: Bool {
+        signedInAccount == nil
     }
 
-    var canInspect: Bool {
-        !playlistURLText.trimmed.isEmpty && !isWorking
-    }
-
-    var canTransfer: Bool {
+    var canTransform: Bool {
         snapshot != nil && !isWorking
     }
 
-    func inspectPlaylist() {
+    var canAcceptIncomingCassette: Bool {
+        pendingCassette != nil && signedInAccount != nil && !isWorking
+    }
+
+    func signIn(to service: MusicService) {
         Task {
-            await performInspection()
+            await performSignIn(to: service)
         }
     }
 
-    func transferCurrentPlaylist() {
+    func refreshOwnedPlaylists() {
         Task {
-            await performTransfer()
+            await loadOwnedPlaylists()
         }
     }
 
-    private func performInspection() async {
-        guard !isWorking else { return }
+    func selectPlaylist(_ playlist: UserPlaylist) {
+        Task {
+            await loadPlaylistDetails(for: playlist)
+        }
+    }
 
-        isWorking = true
+    func backToLibrary() {
         snapshot = nil
         transferResult = nil
+        shareURL = nil
+        shareText = nil
+        shareSheetRequest = nil
         progressValue = nil
         activityLog.removeAll()
-        statusMessage = "Checking the playlist link..."
+        statusMessage = pendingCassette == nil ? "Choose one of your playlists." : "Incoming cassette ready to accept."
+    }
 
-        defer {
-            isWorking = false
-        }
+    func transformCurrentPlaylist() {
+        guard let snapshot else { return }
 
+        let payload = CassettePayload(from: snapshot)
         do {
-            let reference = try PlaylistLinkParser.parse(playlistURLText)
-            appendLog("Detected \(reference.service.displayName) source.")
+            let encoded = try payload.encoded()
+            var components = URLComponents()
+            components.scheme = "cassette-swap"
+            components.host = "cassette"
+            components.queryItems = [URLQueryItem(name: "data", value: encoded)]
 
-            let loadedSnapshot: PlaylistSnapshot
-            switch reference.service {
-            case .spotify:
-                appendLog("Spotify requires sign-in because their API still needs an access token for public playlists.")
-                loadedSnapshot = try await spotifyService.fetchPlaylist(id: reference.playlistID, originalURL: reference.originalURL)
-            case .appleMusic:
-                appendLog("Requesting Apple Music permission through MusicKit.")
-                loadedSnapshot = try await appleMusicService.fetchPlaylist(
-                    storefront: reference.storefront ?? "us",
-                    id: reference.playlistID,
-                    originalURL: reference.originalURL
-                )
+            guard let url = components.url else {
+                throw AppError.message("Unable to format the cassette link.")
             }
 
-            snapshot = loadedSnapshot
-            statusMessage = "Loaded \(loadedSnapshot.name) with \(loadedSnapshot.tracks.count) tracks."
-            appendLog("Ready to create the playlist on \(loadedSnapshot.destinationService.displayName).")
+            let shareString = url.absoluteString
+            UIPasteboard.general.string = shareString
+            shareURL = url
+            shareText = shareString
+            shareSheetRequest = ShareSheetRequest(items: [shareString])
+            transferResult = nil
+            statusMessage = "Cassette link copied. Choose where to share it."
+            appendLog("Generated a cassette link for \(snapshot.name).")
         } catch {
-            snapshot = nil
             statusMessage = error.localizedDescription
             appendLog("Error: \(error.localizedDescription)")
         }
     }
 
-    private func performTransfer() async {
-        guard !isWorking, let snapshot else { return }
+    func handleIncomingURL(_ url: URL) {
+        guard let payload = CassetteDeepLinkParser.parse(url) else {
+            return
+        }
+
+        pendingCassette = payload
+        shareURL = nil
+        shareText = nil
+        shareSheetRequest = nil
+        transferResult = nil
+        snapshot = nil
+        activityLog.removeAll()
+        statusMessage = signedInAccount == nil
+            ? "Sign in to accept the incoming cassette."
+            : "Incoming cassette from \(payload.senderName ?? payload.sourceService.displayName)."
+        appendLog("Received cassette \(payload.name).")
+    }
+
+    func acceptIncomingCassette() {
+        guard let payload = pendingCassette else { return }
+
+        Task {
+            await createPlaylistFromIncomingCassette(payload)
+        }
+    }
+
+    private func performSignIn(to service: MusicService) async {
+        guard !isWorking else { return }
+
+        isWorking = true
+        statusMessage = "Signing in to \(service.displayName)..."
+        activityLog.removeAll()
+        defer { isWorking = false }
+
+        do {
+            switch service {
+            case .spotify:
+                signedInAccount = try await spotifyService.signIn()
+            case .appleMusic:
+                signedInAccount = try await appleMusicService.signIn()
+            }
+
+            appendLog("Signed in to \(signedInAccount?.service.displayName ?? service.displayName).")
+            await loadOwnedPlaylists(allowWhileWorking: true)
+        } catch {
+            statusMessage = error.localizedDescription
+            appendLog("Error: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadOwnedPlaylists(allowWhileWorking: Bool = false) async {
+        guard let account = signedInAccount else { return }
+        guard allowWhileWorking || !isWorking else { return }
+
+        isWorking = true
+        playlists = []
+        snapshot = nil
+        transferResult = nil
+        shareURL = nil
+        shareText = nil
+        progressValue = nil
+        statusMessage = "Loading your \(account.service.displayName) playlists..."
+        appendLog("Fetching owned public playlists.")
+        defer { isWorking = false }
+
+        do {
+            switch account.service {
+            case .spotify:
+                playlists = try await spotifyService.fetchOwnedPlaylists()
+            case .appleMusic:
+                playlists = try await appleMusicService.fetchOwnedPlaylists()
+            }
+
+            if playlists.isEmpty {
+                statusMessage = account.service == .spotify
+                    ? "No owned public Spotify playlists were found."
+                    : "No Apple Music library playlists were found."
+            } else {
+                statusMessage = "Choose one of your playlists."
+            }
+            appendLog("Loaded \(playlists.count) playlists.")
+        } catch {
+            statusMessage = error.localizedDescription
+            appendLog("Error: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadPlaylistDetails(for playlist: UserPlaylist) async {
+        guard let account = signedInAccount, !isWorking else { return }
+
+        isWorking = true
+        snapshot = nil
+        transferResult = nil
+        shareURL = nil
+        shareText = nil
+        progressValue = nil
+        activityLog.removeAll()
+        statusMessage = "Loading \(playlist.name)..."
+        appendLog("Fetching playlist details.")
+        defer { isWorking = false }
+
+        do {
+            let loadedSnapshot: PlaylistSnapshot
+            switch account.service {
+            case .spotify:
+                loadedSnapshot = try await spotifyService.fetchOwnedPlaylist(id: playlist.id)
+            case .appleMusic:
+                loadedSnapshot = try await appleMusicService.fetchOwnedPlaylist(id: playlist.id)
+            }
+
+            snapshot = loadedSnapshot
+            statusMessage = "Loaded \(loadedSnapshot.name) with \(loadedSnapshot.tracks.count) tracks."
+            appendLog("Ready to transform this playlist into a cassette link.")
+        } catch {
+            statusMessage = error.localizedDescription
+            appendLog("Error: \(error.localizedDescription)")
+        }
+    }
+
+    private func createPlaylistFromIncomingCassette(_ payload: CassettePayload) async {
+        guard let account = signedInAccount, !isWorking else { return }
+
+        snapshot = payload.toSnapshot()
+        await performTransfer(snapshot: payload.toSnapshot(), destinationService: account.service)
+    }
+
+    private func performTransfer(snapshot: PlaylistSnapshot, destinationService: MusicService) async {
+        guard !isWorking else { return }
 
         isWorking = true
         transferResult = nil
+        shareURL = nil
+        shareText = nil
+        shareSheetRequest = nil
         progressValue = 0
         activityLog.removeAll()
-        statusMessage = "Starting transfer..."
-        appendLog("Preparing \(snapshot.destinationService.displayName) transfer.")
-
-        defer {
-            isWorking = false
-        }
+        statusMessage = "Creating playlist in \(destinationService.displayName)..."
+        appendLog("Preparing \(destinationService.displayName) transfer.")
+        defer { isWorking = false }
 
         do {
-            switch snapshot.destinationService {
+            switch destinationService {
             case .spotify:
                 let resolution = try await spotifyService.resolveTracks(from: snapshot.tracks, progress: makeProgressHandler())
                 guard !resolution.matched.isEmpty else {
                     throw AppError.message("No tracks could be matched on Spotify.")
                 }
-
-                appendLog("Matched \(resolution.matched.count) of \(snapshot.tracks.count) tracks on Spotify.")
 
                 let created = try await spotifyService.createPlaylist(
                     from: snapshot,
@@ -153,8 +277,6 @@ final class PlaylistTransferViewModel: ObservableObject {
                     throw AppError.message("No tracks could be matched on Apple Music.")
                 }
 
-                appendLog("Matched \(resolution.matched.count) of \(snapshot.tracks.count) tracks on Apple Music.")
-
                 let created = try await appleMusicService.createPlaylist(from: snapshot, matchedTracks: resolution.matched)
 
                 transferResult = TransferResult(
@@ -168,8 +290,9 @@ final class PlaylistTransferViewModel: ObservableObject {
                 )
             }
 
+            pendingCassette = nil
             progressValue = 1
-            statusMessage = "Finished. Matched \(transferResult?.matchedCount ?? 0) of \(snapshot.tracks.count) tracks."
+            statusMessage = "Playlist created in \(destinationService.displayName)."
             appendLog(statusMessage)
         } catch {
             progressValue = nil
@@ -181,7 +304,7 @@ final class PlaylistTransferViewModel: ObservableObject {
     private func makeProgressHandler() -> ProgressHandler {
         { [weak self] message, fractionComplete in
             guard let self else { return }
-            await self.updateProgress(message: message, fractionComplete: fractionComplete)
+            self.updateProgress(message: message, fractionComplete: fractionComplete)
         }
     }
 
@@ -192,5 +315,9 @@ final class PlaylistTransferViewModel: ObservableObject {
     private func updateProgress(message: String, fractionComplete: Double?) {
         statusMessage = message
         progressValue = fractionComplete
+    }
+
+    func clearShareSheetRequest() {
+        shareSheetRequest = nil
     }
 }
