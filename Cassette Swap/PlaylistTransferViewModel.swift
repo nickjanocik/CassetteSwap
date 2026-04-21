@@ -8,6 +8,11 @@ final class PlaylistTransferViewModel: ObservableObject {
             UserDefaults.standard.set(spotifyClientID.trimmed, forKey: Self.spotifyClientIDDefaultsKey)
         }
     }
+    @Published var shareBackendBaseURL: String {
+        didSet {
+            UserDefaults.standard.set(shareBackendBaseURL.trimmed, forKey: Self.shareBackendBaseURLDefaultsKey)
+        }
+    }
 
     @Published private(set) var signedInAccount: MusicAccount?
     @Published private(set) var playlists: [UserPlaylist] = []
@@ -23,14 +28,17 @@ final class PlaylistTransferViewModel: ObservableObject {
     @Published private(set) var shareSheetRequest: ShareSheetRequest?
 
     private static let spotifyClientIDDefaultsKey = "cassette_swap.spotify_client_id"
+    private static let shareBackendBaseURLDefaultsKey = "cassette_swap.share_backend_base_url"
 
     private let appleMusicService = AppleMusicService()
+    private let cassetteShareService = CassetteShareService()
     private lazy var spotifyService = SpotifyService(clientIDProvider: {
         UserDefaults.standard.string(forKey: Self.spotifyClientIDDefaultsKey) ?? ""
     })
 
     init() {
         self.spotifyClientID = UserDefaults.standard.string(forKey: Self.spotifyClientIDDefaultsKey) ?? ""
+        self.shareBackendBaseURL = UserDefaults.standard.string(forKey: Self.shareBackendBaseURLDefaultsKey) ?? ""
     }
 
     var needsSignIn: Bool {
@@ -77,48 +85,26 @@ final class PlaylistTransferViewModel: ObservableObject {
     func transformCurrentPlaylist() {
         guard let snapshot else { return }
 
-        let payload = CassettePayload(from: snapshot)
-        do {
-            let encoded = try payload.encoded()
-            var components = URLComponents()
-            components.scheme = "cassette-swap"
-            components.host = "cassette"
-            components.queryItems = [URLQueryItem(name: "data", value: encoded)]
-
-            guard let url = components.url else {
-                throw AppError.message("Unable to format the cassette link.")
-            }
-
-            let shareString = url.absoluteString
-            UIPasteboard.general.string = shareString
-            shareURL = url
-            shareText = shareString
-            shareSheetRequest = ShareSheetRequest(items: [shareString])
-            transferResult = nil
-            statusMessage = "Cassette link copied. Choose where to share it."
-            appendLog("Generated a cassette link for \(snapshot.name).")
-        } catch {
-            statusMessage = error.localizedDescription
-            appendLog("Error: \(error.localizedDescription)")
+        Task {
+            await createShareLink(for: snapshot)
         }
     }
 
     func handleIncomingURL(_ url: URL) {
-        guard let payload = CassetteDeepLinkParser.parse(url) else {
+        if let payload = CassetteDeepLinkParser.parse(url) {
+            prepareForIncomingCassette(clearLog: true)
+            presentIncomingCassette(payload)
             return
         }
 
-        pendingCassette = payload
-        shareURL = nil
-        shareText = nil
-        shareSheetRequest = nil
-        transferResult = nil
-        snapshot = nil
-        activityLog.removeAll()
-        statusMessage = signedInAccount == nil
-            ? "Sign in to accept the incoming cassette."
-            : "Incoming cassette from \(payload.senderName ?? payload.sourceService.displayName)."
-        appendLog("Received cassette \(payload.name).")
+        let fallbackBaseURL = CassetteShareService.normalizedBaseURL(from: shareBackendBaseURL)
+        guard let reference = CassetteRemoteLinkParser.parse(url, fallbackBaseURL: fallbackBaseURL) else {
+            return
+        }
+
+        Task {
+            await loadIncomingCassette(reference)
+        }
     }
 
     func acceptIncomingCassette() {
@@ -319,5 +305,111 @@ final class PlaylistTransferViewModel: ObservableObject {
 
     func clearShareSheetRequest() {
         shareSheetRequest = nil
+    }
+
+    private func createShareLink(for snapshot: PlaylistSnapshot) async {
+        guard !isWorking else { return }
+
+        isWorking = true
+        shareURL = nil
+        shareText = nil
+        shareSheetRequest = nil
+        transferResult = nil
+        progressValue = nil
+        statusMessage = "Preparing cassette link..."
+        defer { isWorking = false }
+
+        do {
+            let payload = CassettePayload(from: snapshot)
+            let shareURL: URL
+
+            if let baseURL = try validatedShareBaseURLIfConfigured() {
+                appendLog("Uploading cassette for public sharing.")
+                let remoteShare = try await cassetteShareService.createShare(for: payload, baseURL: baseURL)
+                shareURL = remoteShare.shareURL
+                statusMessage = "Public cassette link copied. Choose where to share it."
+                appendLog("Generated public cassette \(remoteShare.id).")
+            } else {
+                shareURL = try buildLocalCassetteLink(for: payload)
+                statusMessage = "Cassette link copied. Choose where to share it."
+                appendLog("Generated a local cassette link for \(snapshot.name).")
+            }
+
+            let shareString = shareURL.absoluteString
+            UIPasteboard.general.string = shareString
+            self.shareURL = shareURL
+            shareText = shareString
+            shareSheetRequest = ShareSheetRequest(items: [shareString])
+        } catch {
+            statusMessage = error.localizedDescription
+            appendLog("Error: \(error.localizedDescription)")
+        }
+    }
+
+    private func buildLocalCassetteLink(for payload: CassettePayload) throws -> URL {
+        let encoded = try payload.encoded()
+        var components = URLComponents()
+        components.scheme = "cassette-swap"
+        components.host = "cassette"
+        components.queryItems = [URLQueryItem(name: "data", value: encoded)]
+
+        guard let url = components.url else {
+            throw AppError.message("Unable to format the cassette link.")
+        }
+
+        return url
+    }
+
+    private func validatedShareBaseURLIfConfigured() throws -> URL? {
+        let trimmed = shareBackendBaseURL.trimmed
+        guard trimmed.isEmpty == false else {
+            return nil
+        }
+
+        guard let url = CassetteShareService.normalizedBaseURL(from: trimmed) else {
+            throw AppError.message("Public share base URL must be a valid http(s) URL.")
+        }
+
+        return url
+    }
+
+    private func loadIncomingCassette(_ reference: RemoteCassetteReference) async {
+        guard !isWorking else { return }
+
+        isWorking = true
+        prepareForIncomingCassette(clearLog: true)
+        statusMessage = "Loading shared cassette..."
+        appendLog("Fetching cassette \(reference.id).")
+        defer { isWorking = false }
+
+        do {
+            let payload = try await cassetteShareService.fetchCassette(id: reference.id, baseURL: reference.baseURL)
+            presentIncomingCassette(payload)
+        } catch {
+            statusMessage = error.localizedDescription
+            appendLog("Error: \(error.localizedDescription)")
+        }
+    }
+
+    private func prepareForIncomingCassette(clearLog: Bool) {
+        shareURL = nil
+        shareText = nil
+        shareSheetRequest = nil
+        transferResult = nil
+        pendingCassette = nil
+        snapshot = nil
+        progressValue = nil
+
+        if clearLog {
+            activityLog.removeAll()
+        }
+    }
+
+    private func presentIncomingCassette(_ payload: CassettePayload) {
+        pendingCassette = payload
+        statusMessage = signedInAccount == nil
+            ? "Sign in to accept the incoming cassette."
+            : "Incoming cassette from \(payload.senderName ?? payload.sourceService.displayName)."
+        appendLog("Received cassette \(payload.name).")
     }
 }

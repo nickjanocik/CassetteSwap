@@ -9,6 +9,8 @@ Minimal SwiftUI iOS app that takes a public Spotify or Apple Music playlist URL 
 - Preserves track order when the destination service can resolve the tracks.
 - Copies the playlist description when the API supports it.
 - Attempts to copy artwork when the destination is Spotify.
+- Can turn one of your own playlists into a shareable "cassette" link.
+- Supports short public cassette links when you configure the optional Cloudflare Worker backend.
 
 ## Important API limits
 
@@ -30,5 +32,22 @@ Minimal SwiftUI iOS app that takes a public Spotify or Apple Music playlist URL 
 ## Notes
 
 - The app stores the Spotify access token in the app's local `UserDefaults` container.
+- The app stores the optional public share base URL in local `UserDefaults` too.
 - The project targets iOS 17.
 - This machine did not have a full Xcode installation available during creation, so the project files were generated directly and not compiled here.
+
+## Optional Public Share Backend
+
+If you want cross-device public cassette links, there is now a Worker scaffold in:
+
+- [cassette-share-worker](/Users/nickjanocik/Documents/Masters/Cassette%20Swap/cassette-share-worker)
+
+That Worker stores cassette JSON in Cloudflare KV and returns short links like:
+
+- `https://swap.yourdomain.com/c/<id>`
+
+The app's sign-in screen now includes a `Public Share Base URL` field. Set it to your deployed Worker base URL, for example:
+
+- `https://swap.yourdomain.com`
+
+If that field is empty, the app falls back to the old local custom-scheme share link.

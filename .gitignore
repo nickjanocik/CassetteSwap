@@ -1,3 +1,5 @@
 .DS_Store
 DerivedData/
 xcuserdata/
+cassette-share-worker/node_modules/
+cassette-share-worker/.wrangler/

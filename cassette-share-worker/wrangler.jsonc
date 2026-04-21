@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cassette-share-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-21",
+  "routes": [
+    {
+      "pattern": "swap.cassettes.cc",
+      "custom_domain": true
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "CASSETTES",
+      "id": "b2779fd2025b4f33bee20ae407a88385"
+    }
+  ],
+  "vars": {
+    "PUBLIC_BASE_URL": "https://swap.cassettes.cc",
+    "CASSETTE_TTL_SECONDS": "2592000",
+    "APPLE_TEAM_ID": "x42F969CTG8",
+    "IOS_BUNDLE_ID": "com.nickjanocik.cassetteswap.dev20260411nj01"
+  }
+}

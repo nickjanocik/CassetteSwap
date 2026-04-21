@@ -79,6 +79,15 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 20)
 
+                inputCard("Public Share Base URL") {
+                    styledTextField("https://swap.yourdomain.com", text: $viewModel.shareBackendBaseURL)
+                    Text("Optional Cloudflare Worker URL. If set, Transform creates a short public HTTPS link instead of embedding the full cassette payload in the custom scheme.")
+                        .font(.system(.caption2, design: .rounded))
+                        .foregroundStyle(fadedText)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 20)
+
                 signInButton(
                     title: "Continue with Spotify",
                     subtitle: "Browse the public playlists you own.",

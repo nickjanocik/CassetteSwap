@@ -28,6 +28,11 @@ struct ShareSheetRequest: Identifiable {
     let items: [Any]
 }
 
+struct RemoteCassetteReference: Hashable {
+    let id: String
+    let baseURL: URL
+}
+
 struct MusicAccount: Equatable {
     let service: MusicService
     let userID: String?

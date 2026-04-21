@@ -19,6 +19,7 @@
 		A10000010000000000000027 /* URLParsers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000001C /* URLParsers.swift */; };
 		A10000010000000000000028 /* ImageTransferService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000001D /* ImageTransferService.swift */; };
 		A10000010000000000000029 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000002A /* Assets.xcassets */; };
+		A1000001000000000000002B /* CassetteShareService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000002C /* CassetteShareService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +37,7 @@
 		A1000001000000000000001C /* URLParsers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLParsers.swift; sourceTree = "<group>"; };
 		A1000001000000000000001D /* ImageTransferService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageTransferService.swift; sourceTree = "<group>"; };
 		A1000001000000000000002A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A1000001000000000000002C /* CassetteShareService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CassetteShareService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -84,6 +86,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000010000000000000017 /* AppleMusicService.swift */,
+				A1000001000000000000002C /* CassetteShareService.swift */,
 				A10000010000000000000018 /* SpotifyOAuthCoordinator.swift */,
 				A10000010000000000000019 /* SpotifyService.swift */,
 			);
@@ -170,6 +173,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000010000000000000022 /* AppleMusicService.swift in Sources */,
+				A1000001000000000000002B /* CassetteShareService.swift in Sources */,
 				A1000001000000000000001E /* CassetteSwapApp.swift in Sources */,
 				A1000001000000000000001F /* ContentView.swift in Sources */,
 				A10000010000000000000028 /* ImageTransferService.swift in Sources */,

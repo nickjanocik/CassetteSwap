@@ -71,6 +71,66 @@ enum CassetteDeepLinkParser {
     }
 }
 
+enum CassetteRemoteLinkParser {
+    static func parse(_ url: URL, fallbackBaseURL: URL?) -> RemoteCassetteReference? {
+        if url.scheme == "cassette-swap", url.host == "cassette" {
+            guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                return nil
+            }
+
+            let id = components.queryItems?
+                .first(where: { $0.name == "id" })?
+                .value?
+                .trimmed
+                .nilIfBlank
+
+            guard let id else {
+                return nil
+            }
+
+            let base = components.queryItems?.first(where: { $0.name == "base" })?.value
+            let baseURL = base.flatMap(CassetteShareService.normalizedBaseURL(from:)) ?? fallbackBaseURL
+            guard let baseURL else {
+                return nil
+            }
+
+            return RemoteCassetteReference(id: id, baseURL: baseURL)
+        }
+
+        guard let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              let host = url.host else {
+            return nil
+        }
+
+        let pathComponents = url.pathComponents.filter { $0 != "/" }
+        guard pathComponents.count >= 2 else {
+            return nil
+        }
+
+        let route = pathComponents[0]
+        guard route == "c" || route == "cassette" else {
+            return nil
+        }
+
+        let id = pathComponents[1]
+        guard id.isEmpty == false else {
+            return nil
+        }
+
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        components.port = url.port
+
+        guard let baseURL = components.url else {
+            return nil
+        }
+
+        return RemoteCassetteReference(id: id, baseURL: baseURL)
+    }
+}
+
 extension Array {
     func chunked(into size: Int) -> [[Element]] {
         guard size > 0 else { return [] }
