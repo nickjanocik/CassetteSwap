@@ -33,6 +33,14 @@ final class PlaylistTransferViewModel: ObservableObject {
         self.spotifyClientID = UserDefaults.standard.string(forKey: Self.spotifyClientIDDefaultsKey) ?? "5c1a3737ee8046df8a340af0a377af19"
     }
 
+    func clearState() {
+        snapshot = nil
+        transferResult = nil
+        progressValue = nil
+        activityLog.removeAll()
+        statusMessage = "Paste a public playlist URL to begin."
+    }
+
     var canInspect: Bool {
         !playlistURLText.trimmed.isEmpty && !isWorking
     }
