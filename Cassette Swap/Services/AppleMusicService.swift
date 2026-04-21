@@ -9,67 +9,53 @@ final class AppleMusicService {
 
     func fetchOwnedPlaylists() async throws -> [UserPlaylist] {
         try await ensureAuthorized()
+        var request = MusicLibraryRequest<Playlist>()
+        request.limit = 100
+        let response = try await request.response()
 
-        var playlists: [UserPlaylist] = []
-        var nextURL: URL? = URL(string: "https://api.music.apple.com/v1/me/library/playlists?limit=100")!
-
-        while let currentURL = nextURL {
-            let response: AppleLibraryPlaylistsEnvelope = try await request(url: currentURL)
-
-            playlists.append(
-                contentsOf: response.data.map { playlist in
-                    UserPlaylist(
-                        id: playlist.id,
-                        service: .appleMusic,
-                        name: playlist.attributes.name,
-                        summary: playlist.attributes.playlistDescription?.standard?.strippedHTML.nilIfBlank ?? "",
-                        artworkURL: playlist.attributes.artwork?.resolvedURL(width: 600, height: 600),
-                        ownerName: "Apple Music"
-                    )
-                }
+        return response.items.map { playlist in
+            UserPlaylist(
+                id: playlist.id.rawValue,
+                service: .appleMusic,
+                name: playlist.name,
+                summary: playlist.standardDescription?.strippedHTML.nilIfBlank
+                    ?? playlist.shortDescription?.strippedHTML.nilIfBlank
+                    ?? "",
+                artworkURL: playlist.artwork?.url(width: 600, height: 600),
+                ownerName: playlist.curatorName?.nilIfBlank ?? "Apple Music"
             )
-
-            nextURL = response.next.map(absoluteURL(from:))
         }
-
-        return playlists
     }
 
     func fetchOwnedPlaylist(id: String) async throws -> PlaylistSnapshot {
         try await ensureAuthorized()
+        var request = MusicLibraryRequest<Playlist>()
+        request.filter(matching: \.id, equalTo: MusicItemID(id))
+        request.limit = 1
+        let response = try await request.response()
 
-        let escapedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-        let url = URL(string: "https://api.music.apple.com/v1/me/library/playlists/\(escapedID)?include=tracks&limit[tracks]=100")!
-        let response: AppleLibraryPlaylistDetailsEnvelope = try await request(url: url)
-
-        guard let playlist = response.data.first else {
+        guard let basePlaylist = response.items.first else {
             throw AppError.message("Apple Music did not return that playlist.")
         }
 
-        var tracks: [TransferTrack] = []
-        appendTracks(from: playlist.relationships?.tracks?.data ?? [], into: &tracks)
-
-        var nextPath = playlist.relationships?.tracks?.next
-        while let currentNextPath = nextPath {
-            let pageURL = absoluteURL(from: currentNextPath)
-            let page: AppleTracksPage = try await request(url: pageURL)
-            appendTracks(from: page.data, into: &tracks)
-            nextPath = page.next
-        }
+        let playlist = try await basePlaylist.with([.tracks])
+        let tracks = mapLibraryTracks(from: playlist.tracks ?? [])
 
         return PlaylistSnapshot(
-            id: playlist.id,
+            id: playlist.id.rawValue,
             reference: PlaylistReference(
                 service: .appleMusic,
-                playlistID: playlist.id,
+                playlistID: playlist.id.rawValue,
                 storefront: nil,
-                originalURL: URL(string: "https://music.apple.com/library/playlist/\(playlist.id)")!
+                originalURL: playlist.url ?? URL(string: "https://music.apple.com/library/playlist/\(playlist.id.rawValue)")!
             ),
-            name: playlist.attributes.name,
-            summary: playlist.attributes.playlistDescription?.standard?.strippedHTML.nilIfBlank ?? "",
-            artworkURL: playlist.attributes.artwork?.resolvedURL(width: 600, height: 600),
+            name: playlist.name,
+            summary: playlist.standardDescription?.strippedHTML.nilIfBlank
+                ?? playlist.shortDescription?.strippedHTML.nilIfBlank
+                ?? "",
+            artworkURL: playlist.artwork?.url(width: 600, height: 600),
             tracks: tracks,
-            ownerName: "Apple Music",
+            ownerName: playlist.curatorName?.nilIfBlank ?? "Apple Music",
             ownerImageURL: nil
         )
     }
@@ -177,7 +163,7 @@ final class AppleMusicService {
         return TrackResolution(matched: matched, unmatched: unmatched)
     }
 
-    func createPlaylist(from snapshot: PlaylistSnapshot, matchedTracks: [DestinationTrackReference]) async throws -> (playlistID: String, notes: [String]) {
+    func createPlaylist(from snapshot: PlaylistSnapshot, matchedTracks: [DestinationTrackReference]) async throws -> (playlistID: String, playlistURL: URL?, notes: [String]) {
         try await ensureAuthorized()
 
         let requestBody = AppleCreatePlaylistRequest(
@@ -204,6 +190,7 @@ final class AppleMusicService {
 
         return (
             playlistID: playlist.id,
+            playlistURL: URL(string: "https://music.apple.com/library/playlist/\(playlist.id)"),
             notes: [
                 "Apple Music created a library playlist in your account.",
                 "Apple does not expose custom playlist artwork upload or public-profile publishing through MusicKit."
@@ -277,6 +264,19 @@ final class AppleMusicService {
                     isrc: attributes.isrc,
                     originalPosition: tracks.count + 1
                 )
+            )
+        }
+    }
+
+    private func mapLibraryTracks(from items: MusicItemCollection<Track>) -> [TransferTrack] {
+        items.enumerated().compactMap { index, track in
+            TransferTrack(
+                id: track.id.rawValue,
+                title: track.title,
+                artistName: track.artistName,
+                albumTitle: track.albumTitle,
+                isrc: track.isrc,
+                originalPosition: index + 1
             )
         }
     }

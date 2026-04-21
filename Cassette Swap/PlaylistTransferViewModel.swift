@@ -119,6 +119,15 @@ final class PlaylistTransferViewModel: ObservableObject {
         }
     }
 
+    func declineIncomingCassette() {
+        guard !isWorking else { return }
+
+        prepareForIncomingCassette(clearLog: true)
+        statusMessage = signedInAccount == nil
+            ? "Sign in to browse your playlists."
+            : "Choose one of your playlists."
+    }
+
     private func performSignIn(to service: MusicService, autoAcceptPendingCassette: Bool = false) async {
         guard !isWorking else { return }
 
@@ -221,7 +230,6 @@ final class PlaylistTransferViewModel: ObservableObject {
 
     private func createPlaylistFromIncomingCassette(_ payload: CassettePayload, destinationService: MusicService) async {
         guard !isWorking else { return }
-        snapshot = payload.toSnapshot()
         await performTransfer(snapshot: payload.toSnapshot(), destinationService: destinationService)
     }
 
@@ -278,7 +286,7 @@ final class PlaylistTransferViewModel: ObservableObject {
                 transferResult = TransferResult(
                     destinationService: .appleMusic,
                     playlistID: created.playlistID,
-                    playlistURL: nil,
+                    playlistURL: created.playlistURL,
                     matchedCount: resolution.matched.count,
                     unmatched: resolution.unmatched,
                     artworkCopied: false,
@@ -290,6 +298,10 @@ final class PlaylistTransferViewModel: ObservableObject {
             progressValue = 1
             statusMessage = "Playlist created in \(destinationService.displayName)."
             appendLog(statusMessage)
+
+            if let playlistURL = transferResult?.playlistURL {
+                await UIApplication.shared.open(playlistURL)
+            }
         } catch {
             progressValue = nil
             statusMessage = error.localizedDescription

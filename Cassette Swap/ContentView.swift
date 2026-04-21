@@ -105,6 +105,11 @@ struct ContentView: View {
                 incomingCassetteCard
                     .padding(.horizontal, 20)
 
+                if let result = viewModel.transferResult {
+                    resultCard(result)
+                        .padding(.horizontal, 20)
+                }
+
                 if viewModel.isWorking {
                     ProgressView()
                         .tint(hotPink)
@@ -331,6 +336,20 @@ struct ContentView: View {
                     subtitle: "Sign in or switch if needed, then build it in Spotify.",
                     action: { viewModel.acceptIncomingCassette(to: .spotify) }
                 )
+
+                Button {
+                    viewModel.declineIncomingCassette()
+                } label: {
+                    Text("Decline")
+                        .font(.system(.callout, design: .rounded).bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(.white)
+                        .background(
+                            Capsule()
+                                .fill(Color.white.opacity(0.08))
+                        )
+                }
             }
             .frame(maxWidth: .infinity)
             .padding(16)
