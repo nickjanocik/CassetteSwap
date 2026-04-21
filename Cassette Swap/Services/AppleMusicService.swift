@@ -4,7 +4,7 @@ import MusicKit
 final class AppleMusicService {
     func signIn() async throws -> MusicAccount {
         try await ensureAuthorized()
-        return MusicAccount(service: .appleMusic, userID: nil, displayName: "Apple Music")
+        return MusicAccount(service: .appleMusic, userID: nil, displayName: "Apple Music", profileImageURL: nil)
     }
 
     func fetchOwnedPlaylists() async throws -> [UserPlaylist] {
@@ -69,7 +69,8 @@ final class AppleMusicService {
             summary: playlist.attributes.playlistDescription?.standard?.strippedHTML.nilIfBlank ?? "",
             artworkURL: playlist.attributes.artwork?.resolvedURL(width: 600, height: 600),
             tracks: tracks,
-            ownerName: "Apple Music"
+            ownerName: "Apple Music",
+            ownerImageURL: nil
         )
     }
 
@@ -116,7 +117,8 @@ final class AppleMusicService {
             summary: summary,
             artworkURL: playlist.attributes.artwork?.resolvedURL(width: 600, height: 600),
             tracks: tracks,
-            ownerName: nil
+            ownerName: nil,
+            ownerImageURL: nil
         )
     }
 

@@ -70,19 +70,21 @@ struct ContentView: View {
                 incomingCassetteCard
                     .padding(.horizontal, 20)
 
-                signInButton(
-                    title: "Continue with Apple Music",
-                    subtitle: "Browse your library playlists with MusicKit.",
-                    action: { viewModel.signIn(to: .appleMusic) }
-                )
-                .padding(.horizontal, 20)
+                if viewModel.pendingCassette == nil {
+                    signInButton(
+                        title: "Continue with Apple Music",
+                        subtitle: "Browse your library playlists with MusicKit.",
+                        action: { viewModel.signIn(to: .appleMusic) }
+                    )
+                    .padding(.horizontal, 20)
 
-                signInButton(
-                    title: "Continue with Spotify",
-                    subtitle: "Browse the public playlists you own.",
-                    action: { viewModel.signIn(to: .spotify) }
-                )
-                .padding(.horizontal, 20)
+                    signInButton(
+                        title: "Continue with Spotify",
+                        subtitle: "Browse the public playlists you own.",
+                        action: { viewModel.signIn(to: .spotify) }
+                    )
+                    .padding(.horizontal, 20)
+                }
 
                 statusSection
                     .padding(.horizontal, 20)
@@ -242,9 +244,21 @@ struct ContentView: View {
 
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(viewModel.signedInAccount?.service.displayName ?? "")
-                .font(.system(.caption, design: .rounded).bold())
-                .foregroundStyle(hotPink)
+            HStack {
+                Button {
+                    viewModel.returnToHome()
+                } label: {
+                    Label("Home", systemImage: "chevron.left")
+                        .font(.system(.caption, design: .rounded).bold())
+                        .foregroundStyle(electricBlue)
+                }
+
+                Spacer()
+
+                Text(viewModel.signedInAccount?.service.displayName ?? "")
+                    .font(.system(.caption, design: .rounded).bold())
+                    .foregroundStyle(hotPink)
+            }
             Text(viewModel.signedInAccount?.displayName ?? "")
                 .font(.system(.title3, design: .rounded).bold())
                 .foregroundStyle(.white)
@@ -252,12 +266,16 @@ struct ContentView: View {
                 .font(.system(.caption, design: .rounded))
                 .foregroundStyle(fadedText)
 
-            Button {
-                viewModel.refreshOwnedPlaylists()
-            } label: {
-                Text("Refresh Playlists")
-                    .font(.system(.caption, design: .rounded).bold())
-                    .foregroundStyle(electricBlue)
+            HStack {
+                Button {
+                    viewModel.refreshOwnedPlaylists()
+                } label: {
+                    Text("Refresh Playlists")
+                        .font(.system(.caption, design: .rounded).bold())
+                        .foregroundStyle(electricBlue)
+                }
+
+                Spacer()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -273,30 +291,46 @@ struct ContentView: View {
                     .font(.system(.caption, design: .rounded).bold())
                     .foregroundStyle(hotPink)
 
-                Text(pendingCassette.name)
+                if let senderImageURL = pendingCassette.senderImageURL {
+                    AsyncImage(url: senderImageURL) { image in
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } placeholder: {
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.system(size: 54))
+                            .foregroundStyle(electricBlue)
+                    }
+                    .frame(width: 72, height: 72)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 2))
+                }
+
+                Text("\(pendingCassette.senderName ?? pendingCassette.sourceService.displayName) sent you a Cassette!")
                     .font(.system(.headline, design: .rounded).bold())
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
-                Text("From \(pendingCassette.senderName ?? pendingCassette.sourceService.displayName)")
+                Text(pendingCassette.name)
+                    .font(.system(.subheadline, design: .rounded).bold())
+                    .foregroundStyle(fadedText)
+                    .multilineTextAlignment(.center)
+
+                Text("Choose where to recreate this cassette.")
                     .font(.system(.caption, design: .rounded))
                     .foregroundStyle(fadedText)
 
-                Button {
-                    viewModel.acceptIncomingCassette()
-                } label: {
-                    Text(viewModel.needsSignIn ? "Sign In to Accept" : "Accept Cassette")
-                        .font(.system(.callout, design: .rounded).bold())
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .foregroundStyle(.white)
-                        .background(
-                            Capsule()
-                                .fill(LinearGradient(colors: [hotPink, electricBlue], startPoint: .leading, endPoint: .trailing))
-                        )
-                }
-                .disabled(viewModel.needsSignIn || viewModel.isWorking)
-                .opacity(viewModel.needsSignIn ? 0.5 : 1)
+                signInButton(
+                    title: "Create on Apple Music",
+                    subtitle: "Sign in or switch if needed, then build it in Apple Music.",
+                    action: { viewModel.acceptIncomingCassette(to: .appleMusic) }
+                )
+
+                signInButton(
+                    title: "Create on Spotify",
+                    subtitle: "Sign in or switch if needed, then build it in Spotify.",
+                    action: { viewModel.acceptIncomingCassette(to: .spotify) }
+                )
             }
             .frame(maxWidth: .infinity)
             .padding(16)

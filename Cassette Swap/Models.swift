@@ -37,6 +37,7 @@ struct MusicAccount: Equatable {
     let service: MusicService
     let userID: String?
     let displayName: String
+    let profileImageURL: URL?
 }
 
 struct UserPlaylist: Identifiable, Hashable {
@@ -72,6 +73,7 @@ struct PlaylistSnapshot: Identifiable {
     let artworkURL: URL?
     let tracks: [TransferTrack]
     let ownerName: String?
+    let ownerImageURL: URL?
 
     var sourceService: MusicService {
         reference.service
@@ -107,6 +109,7 @@ struct CassettePayload: Codable {
     let artworkURLString: String?
     let sourceService: MusicService
     let senderName: String?
+    let senderImageURLString: String?
     let tracks: [CassetteTrack]
 
     struct CassetteTrack: Codable {
@@ -122,6 +125,7 @@ struct CassettePayload: Codable {
         self.artworkURLString = snapshot.artworkURL?.absoluteString
         self.sourceService = snapshot.sourceService
         self.senderName = snapshot.ownerName
+        self.senderImageURLString = snapshot.ownerImageURL?.absoluteString
         self.tracks = snapshot.tracks.map {
             CassetteTrack(title: $0.title, artistName: $0.artistName, albumTitle: $0.albumTitle, isrc: $0.isrc)
         }
@@ -151,8 +155,13 @@ struct CassettePayload: Codable {
             summary: summary,
             artworkURL: artworkURLString.flatMap { URL(string: $0) },
             tracks: transferTracks,
-            ownerName: senderName
+            ownerName: senderName,
+            ownerImageURL: senderImageURLString.flatMap { URL(string: $0) }
         )
+    }
+
+    var senderImageURL: URL? {
+        senderImageURLString.flatMap(URL.init(string:))
     }
 
     func encoded() throws -> String {

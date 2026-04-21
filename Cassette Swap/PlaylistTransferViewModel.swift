@@ -40,6 +40,23 @@ final class PlaylistTransferViewModel: ObservableObject {
         }
     }
 
+    func returnToHome() {
+        guard !isWorking else { return }
+
+        signedInAccount = nil
+        playlists = []
+        snapshot = nil
+        transferResult = nil
+        shareURL = nil
+        shareText = nil
+        shareSheetRequest = nil
+        progressValue = nil
+        activityLog.removeAll()
+        statusMessage = pendingCassette == nil
+            ? "Sign in to browse your playlists."
+            : "Choose Spotify or Apple Music to recreate this cassette."
+    }
+
     func refreshOwnedPlaylists() {
         Task {
             await loadOwnedPlaylists()
@@ -87,21 +104,27 @@ final class PlaylistTransferViewModel: ObservableObject {
         }
     }
 
-    func acceptIncomingCassette() {
-        guard let payload = pendingCassette else { return }
+    func acceptIncomingCassette(to destinationService: MusicService) {
+        guard let payload = pendingCassette, !isWorking else { return }
+
+        if signedInAccount?.service == destinationService {
+            Task {
+                await createPlaylistFromIncomingCassette(payload, destinationService: destinationService)
+            }
+            return
+        }
 
         Task {
-            await createPlaylistFromIncomingCassette(payload)
+            await performSignIn(to: destinationService, autoAcceptPendingCassette: true)
         }
     }
 
-    private func performSignIn(to service: MusicService) async {
+    private func performSignIn(to service: MusicService, autoAcceptPendingCassette: Bool = false) async {
         guard !isWorking else { return }
 
         isWorking = true
         statusMessage = "Signing in to \(service.displayName)..."
         activityLog.removeAll()
-        defer { isWorking = false }
 
         do {
             switch service {
@@ -112,8 +135,16 @@ final class PlaylistTransferViewModel: ObservableObject {
             }
 
             appendLog("Signed in to \(signedInAccount?.service.displayName ?? service.displayName).")
-            await loadOwnedPlaylists(allowWhileWorking: true)
+
+            isWorking = false
+
+            if autoAcceptPendingCassette, let pendingCassette {
+                await createPlaylistFromIncomingCassette(pendingCassette, destinationService: service)
+            } else {
+                await loadOwnedPlaylists()
+            }
         } catch {
+            isWorking = false
             statusMessage = error.localizedDescription
             appendLog("Error: \(error.localizedDescription)")
         }
@@ -188,11 +219,10 @@ final class PlaylistTransferViewModel: ObservableObject {
         }
     }
 
-    private func createPlaylistFromIncomingCassette(_ payload: CassettePayload) async {
-        guard let account = signedInAccount, !isWorking else { return }
-
+    private func createPlaylistFromIncomingCassette(_ payload: CassettePayload, destinationService: MusicService) async {
+        guard !isWorking else { return }
         snapshot = payload.toSnapshot()
-        await performTransfer(snapshot: payload.toSnapshot(), destinationService: account.service)
+        await performTransfer(snapshot: payload.toSnapshot(), destinationService: destinationService)
     }
 
     private func performTransfer(snapshot: PlaylistSnapshot, destinationService: MusicService) async {
@@ -357,9 +387,7 @@ final class PlaylistTransferViewModel: ObservableObject {
 
     private func presentIncomingCassette(_ payload: CassettePayload) {
         pendingCassette = payload
-        statusMessage = signedInAccount == nil
-            ? "Sign in to accept the incoming cassette."
-            : "Incoming cassette from \(payload.senderName ?? payload.sourceService.displayName)."
+        statusMessage = "Choose Spotify or Apple Music to recreate this cassette."
         appendLog("Received cassette \(payload.name).")
     }
 }

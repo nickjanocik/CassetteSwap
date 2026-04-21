@@ -19,6 +19,7 @@ interface CassettePayload {
   artworkURLString?: string | null;
   sourceService: "spotify" | "appleMusic";
   senderName?: string | null;
+  senderImageURLString?: string | null;
   tracks: CassetteTrack[];
 }
 
@@ -145,8 +146,15 @@ async function handleLandingPage(id: string, request: Request, env: Env): Promis
   const publicBaseURL = resolvePublicBaseURL(request, env);
   const openUrl = buildCustomSchemeURL(id, publicBaseURL).toString();
   const title = escapeHTML(record.payload.name);
-  const subtitle = escapeHTML(record.payload.senderName ?? record.payload.sourceService);
+  const senderName = record.payload.senderName?.trim() || record.payload.sourceService;
+  const escapedSenderName = escapeHTML(senderName);
   const trackCount = record.payload.tracks.length;
+  const senderImageURL = safeImageURL(record.payload.senderImageURLString);
+  const heroImageURL = safeImageURL(record.payload.senderImageURLString) ?? safeImageURL(record.payload.artworkURLString);
+  const senderImageMarkup = senderImageURL
+    ? `<img class="avatar" src="${escapeHTML(senderImageURL)}" alt="${escapedSenderName} profile photo">`
+    : `<div class="avatar avatar-fallback" aria-hidden="true">${escapeHTML(senderName.charAt(0).toUpperCase() || "C")}</div>`;
+  const heading = escapeHTML(`${senderName} sent you a Cassette!`);
 
   return html(
     `<!doctype html>
@@ -155,10 +163,11 @@ async function handleLandingPage(id: string, request: Request, env: Env): Promis
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${title} | Cassette Swap</title>
-    <meta name="description" content="Open ${title} in Cassette Swap.">
+    <meta name="description" content="${heading}">
     <meta property="og:title" content="${title}">
-    <meta property="og:description" content="Shared from ${subtitle}. ${trackCount} tracks.">
+    <meta property="og:description" content="${heading} ${trackCount} tracks.">
     <meta property="og:type" content="website">
+    ${heroImageURL ? `<meta property="og:image" content="${escapeHTML(heroImageURL)}">` : ""}
     <style>
       body {
         margin: 0;
@@ -176,6 +185,23 @@ async function handleLandingPage(id: string, request: Request, env: Env): Promis
         border-radius: 24px;
         padding: 28px;
         box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+        text-align: center;
+      }
+      .avatar {
+        width: 84px;
+        height: 84px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid rgba(255, 255, 255, 0.14);
+        display: block;
+        margin: 14px auto 16px;
+      }
+      .avatar-fallback {
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, #ff5ba7 0%, #4db0ff 100%);
+        font-size: 32px;
+        font-weight: 800;
       }
       .eyebrow {
         color: #ff72aa;
@@ -213,8 +239,10 @@ async function handleLandingPage(id: string, request: Request, env: Env): Promis
   <body>
     <main class="card">
       <div class="eyebrow">Cassette Swap</div>
+      ${senderImageMarkup}
+      <p>${heading}</p>
       <h1>${title}</h1>
-      <p>Shared from ${subtitle}. Open this cassette in the app to recreate the playlist.</p>
+      <p>Open this cassette in the app to recreate the playlist.</p>
       <p>${trackCount} tracks are waiting inside this cassette.</p>
       <a class="button" href="${escapeHTML(openUrl)}">Open in Cassette Swap</a>
       <div class="meta">If the app does not open automatically, install it first and try again.</div>
@@ -265,6 +293,7 @@ function parseCassettePayload(input: unknown): CassettePayload {
   const summary = typeof payload.summary === "string" ? payload.summary : "";
   const sourceService = requireMusicService(payload.sourceService);
   const senderName = optionalString(payload.senderName);
+  const senderImageURLString = optionalString(payload.senderImageURLString);
   const artworkURLString = optionalString(payload.artworkURLString);
 
   if (!Array.isArray(payload.tracks) || payload.tracks.length === 0) {
@@ -279,6 +308,7 @@ function parseCassettePayload(input: unknown): CassettePayload {
     artworkURLString,
     sourceService,
     senderName,
+    senderImageURLString,
     tracks
   };
 }
@@ -336,6 +366,19 @@ function buildCustomSchemeURL(id: string, publicBaseURL: URL): URL {
   components.searchParams.set("id", id);
   components.searchParams.set("base", publicBaseURL.toString().replace(/\/+$/, ""));
   return components;
+}
+
+function safeImageURL(rawValue: string | null | undefined): string | null {
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    const url = new URL(rawValue);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 function kvKey(id: string): string {

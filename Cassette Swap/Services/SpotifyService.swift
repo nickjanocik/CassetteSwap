@@ -14,7 +14,12 @@ final class SpotifyService {
     func signIn() async throws -> MusicAccount {
         try await ensureAuthorized(requiredScopes: [.playlistReadPrivate, .playlistReadCollaborative])
         let profile = try await fetchCurrentUserProfile()
-        return MusicAccount(service: .spotify, userID: profile.id, displayName: profile.displayName ?? profile.id)
+        return MusicAccount(
+            service: .spotify,
+            userID: profile.id,
+            displayName: profile.displayName ?? profile.id,
+            profileImageURL: profile.images.first?.url
+        )
     }
 
     func fetchOwnedPlaylists() async throws -> [UserPlaylist] {
@@ -64,7 +69,8 @@ final class SpotifyService {
             summary: snapshot.summary,
             artworkURL: snapshot.artworkURL,
             tracks: snapshot.tracks,
-            ownerName: profile.displayName ?? profile.id
+            ownerName: profile.displayName ?? profile.id,
+            ownerImageURL: profile.images.first?.url
         )
     }
 
@@ -129,7 +135,8 @@ final class SpotifyService {
             summary: (metadata.description ?? "").strippedHTML,
             artworkURL: metadata.images.first?.url,
             tracks: tracks,
-            ownerName: nil
+            ownerName: nil,
+            ownerImageURL: nil
         )
     }
 
@@ -678,10 +685,19 @@ private struct SpotifyPlaylistMetadata: Decodable {
 private struct SpotifyCurrentUserProfile: Decodable {
     let id: String
     let displayName: String?
+    let images: [SpotifyImage]
 
     enum CodingKeys: String, CodingKey {
         case id
         case displayName = "display_name"
+        case images
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+        images = try container.decodeIfPresent([SpotifyImage].self, forKey: .images) ?? []
     }
 }
 
@@ -838,6 +854,22 @@ private struct SpotifyCreatePlaylistRequest: Encodable {
     let name: String
     let description: String?
     let `public`: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case description
+        case `public`
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(`public`, forKey: .public)
+
+        if let description {
+            try container.encode(description, forKey: .description)
+        }
+    }
 }
 
 private struct SpotifyCreatedPlaylist: Decodable {
