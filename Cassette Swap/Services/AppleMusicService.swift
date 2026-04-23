@@ -21,7 +21,7 @@ final class AppleMusicService {
                 summary: playlist.standardDescription?.strippedHTML.nilIfBlank
                     ?? playlist.shortDescription?.strippedHTML.nilIfBlank
                     ?? "",
-                artworkURL: playlist.artwork?.url(width: 600, height: 600),
+                artworkURL: normalizedArtworkURL(playlist.artwork?.url(width: 600, height: 600)),
                 ownerName: playlist.curatorName?.nilIfBlank ?? "Apple Music"
             )
         }
@@ -53,7 +53,7 @@ final class AppleMusicService {
             summary: playlist.standardDescription?.strippedHTML.nilIfBlank
                 ?? playlist.shortDescription?.strippedHTML.nilIfBlank
                 ?? "",
-            artworkURL: playlist.artwork?.url(width: 600, height: 600),
+            artworkURL: normalizedArtworkURL(playlist.artwork?.url(width: 600, height: 600)),
             tracks: tracks,
             ownerName: playlist.curatorName?.nilIfBlank ?? "Apple Music",
             ownerImageURL: nil
@@ -101,7 +101,7 @@ final class AppleMusicService {
             ),
             name: playlist.attributes.name,
             summary: summary,
-            artworkURL: playlist.attributes.artwork?.resolvedURL(width: 600, height: 600),
+            artworkURL: normalizedArtworkURL(playlist.attributes.artwork?.resolvedURL(width: 600, height: 600)),
             tracks: tracks,
             ownerName: nil,
             ownerImageURL: nil
@@ -289,7 +289,13 @@ final class AppleMusicService {
     }
 
     private func resolvedCurrentStorefront() async throws -> String {
-        let rawValue = try await MusicDataRequest.currentCountryCode as Any
+        let rawValue: Any
+        do {
+            rawValue = try await MusicDataRequest.currentCountryCode as Any
+        } catch {
+            throw explainMusicKitFailure(error)
+        }
+
         if let storefront = unwrappedOptional(rawValue) as? String, storefront.isEmpty == false {
             return storefront
         }
@@ -314,6 +320,14 @@ final class AppleMusicService {
         return URL(string: path, relativeTo: URL(string: "https://api.music.apple.com"))!
     }
 
+    private func normalizedArtworkURL(_ url: URL?) -> URL? {
+        guard let url, let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) else {
+            return nil
+        }
+
+        return url
+    }
+
     private func request<Response: Decodable>(url: URL, method: String = "GET", body: Data? = nil) async throws -> Response {
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -323,7 +337,12 @@ final class AppleMusicService {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
 
-        let dataResponse = try await MusicDataRequest(urlRequest: request).response()
+        let dataResponse: MusicDataResponse
+        do {
+            dataResponse = try await MusicDataRequest(urlRequest: request).response()
+        } catch {
+            throw explainMusicKitFailure(error)
+        }
 
         if let decoded = try? JSONDecoder().decode(Response.self, from: dataResponse.data) {
             return decoded
@@ -335,6 +354,35 @@ final class AppleMusicService {
         }
 
         throw AppError.message("Apple Music returned an unexpected response.")
+    }
+
+    private func explainMusicKitFailure(_ error: Error) -> Error {
+        let nsError = error as NSError
+        let descriptions = [
+            error.localizedDescription,
+            nsError.localizedDescription,
+            nsError.userInfo[NSDebugDescriptionErrorKey] as? String,
+            nsError.userInfo["AMSDescription"] as? String
+        ]
+            .compactMap { $0?.lowercased() }
+
+        if descriptions.contains(where: {
+            $0.contains("client identifier")
+                || $0.contains("client not found")
+                || $0.contains("status code: not found")
+                || $0.contains("failed to request developer token")
+                || $0.contains("developer token")
+        }) {
+            return AppError.message(
+                "Apple Music catalog access is not configured for this build. Enable the MusicKit App Service for this app's exact bundle identifier in Apple Developer, then try again."
+            )
+        }
+
+        if descriptions.contains(where: { $0.contains("permission") || $0.contains("authorized") }) {
+            return AppError.message("Apple Music access is required to read or create playlists.")
+        }
+
+        return error
     }
 }
 

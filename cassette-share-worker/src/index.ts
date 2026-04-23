@@ -20,6 +20,7 @@ interface CassettePayload {
   sourceService: "spotify" | "appleMusic";
   senderName?: string | null;
   senderImageURLString?: string | null;
+  senderImageDataBase64?: string | null;
   tracks: CassetteTrack[];
 }
 
@@ -150,9 +151,10 @@ async function handleLandingPage(id: string, request: Request, env: Env): Promis
   const escapedSenderName = escapeHTML(senderName);
   const trackCount = record.payload.tracks.length;
   const senderImageURL = safeImageURL(record.payload.senderImageURLString);
+  const senderInlineImageURL = safeInlineImageDataURL(record.payload.senderImageDataBase64);
   const heroImageURL = safeImageURL(record.payload.senderImageURLString) ?? safeImageURL(record.payload.artworkURLString);
-  const senderImageMarkup = senderImageURL
-    ? `<img class="avatar" src="${escapeHTML(senderImageURL)}" alt="${escapedSenderName} profile photo">`
+  const senderImageMarkup = senderImageURL || senderInlineImageURL
+    ? `<img class="avatar" src="${escapeHTML(senderImageURL ?? senderInlineImageURL ?? "")}" alt="${escapedSenderName} profile photo">`
     : `<div class="avatar avatar-fallback" aria-hidden="true">${escapeHTML(senderName.charAt(0).toUpperCase() || "C")}</div>`;
   const heading = escapeHTML(`${senderName} sent you a Cassette!`);
 
@@ -294,6 +296,7 @@ function parseCassettePayload(input: unknown): CassettePayload {
   const sourceService = requireMusicService(payload.sourceService);
   const senderName = optionalString(payload.senderName);
   const senderImageURLString = optionalString(payload.senderImageURLString);
+  const senderImageDataBase64 = optionalBase64String(payload.senderImageDataBase64);
   const artworkURLString = optionalString(payload.artworkURLString);
 
   if (!Array.isArray(payload.tracks) || payload.tracks.length === 0) {
@@ -309,6 +312,7 @@ function parseCassettePayload(input: unknown): CassettePayload {
     sourceService,
     senderName,
     senderImageURLString,
+    senderImageDataBase64,
     tracks
   };
 }
@@ -347,6 +351,19 @@ function optionalString(input: unknown): string | null {
   return typeof input === "string" && input.trim() !== "" ? input : null;
 }
 
+function optionalBase64String(input: unknown): string | null {
+  if (typeof input !== "string") {
+    return null;
+  }
+
+  const trimmed = input.trim();
+  if (trimmed === "" || /^[A-Za-z0-9+/=]+$/.test(trimmed) === false) {
+    return null;
+  }
+
+  return trimmed;
+}
+
 function parseTTLSeconds(rawValue: string | undefined): number {
   const parsed = Number.parseInt(rawValue ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TTL_SECONDS;
@@ -379,6 +396,16 @@ function safeImageURL(rawValue: string | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+function safeInlineImageDataURL(rawValue: string | null | undefined): string | null {
+  if (!rawValue) {
+    return null;
+  }
+
+  return /^[A-Za-z0-9+/=]+$/.test(rawValue)
+    ? `data:image/jpeg;base64,${rawValue}`
+    : null;
 }
 
 function kvKey(id: string): string {

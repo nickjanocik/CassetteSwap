@@ -33,7 +33,7 @@ struct RemoteCassetteReference: Hashable {
     let baseURL: URL
 }
 
-struct MusicAccount: Equatable {
+struct MusicAccount: Codable, Equatable {
     let service: MusicService
     let userID: String?
     let displayName: String
@@ -101,6 +101,17 @@ struct TransferResult {
     let notes: [String]
 }
 
+struct SentCassetteRecord: Identifiable, Codable, Hashable {
+    let id: UUID
+    let name: String
+    let summary: String
+    let artworkURL: URL?
+    let sourceService: MusicService
+    let shareURL: URL
+    let trackCount: Int
+    let sentAt: Date
+}
+
 // MARK: - Shareable Cassette
 
 struct CassettePayload: Codable {
@@ -110,6 +121,7 @@ struct CassettePayload: Codable {
     let sourceService: MusicService
     let senderName: String?
     let senderImageURLString: String?
+    let senderImageDataBase64: String?
     let tracks: [CassetteTrack]
 
     struct CassetteTrack: Codable {
@@ -119,13 +131,19 @@ struct CassettePayload: Codable {
         let isrc: String?
     }
 
-    init(from snapshot: PlaylistSnapshot) {
+    init(
+        from snapshot: PlaylistSnapshot,
+        senderNameOverride: String? = nil,
+        senderImageURLOverride: URL? = nil,
+        senderImageDataOverride: Data? = nil
+    ) {
         self.name = snapshot.name
         self.summary = snapshot.summary
         self.artworkURLString = snapshot.artworkURL?.absoluteString
         self.sourceService = snapshot.sourceService
-        self.senderName = snapshot.ownerName
-        self.senderImageURLString = snapshot.ownerImageURL?.absoluteString
+        self.senderName = senderNameOverride ?? snapshot.ownerName
+        self.senderImageURLString = senderImageURLOverride?.absoluteString ?? snapshot.ownerImageURL?.absoluteString
+        self.senderImageDataBase64 = senderImageDataOverride?.base64EncodedString()
         self.tracks = snapshot.tracks.map {
             CassetteTrack(title: $0.title, artistName: $0.artistName, albumTitle: $0.albumTitle, isrc: $0.isrc)
         }
@@ -162,6 +180,10 @@ struct CassettePayload: Codable {
 
     var senderImageURL: URL? {
         senderImageURLString.flatMap(URL.init(string:))
+    }
+
+    var senderImageData: Data? {
+        senderImageDataBase64.flatMap { Data(base64Encoded: $0) }
     }
 
     func encoded() throws -> String {

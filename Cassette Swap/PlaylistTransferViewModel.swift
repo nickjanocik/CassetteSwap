@@ -4,6 +4,13 @@ import UIKit
 @MainActor
 final class PlaylistTransferViewModel: ObservableObject {
     @Published private(set) var signedInAccount: MusicAccount?
+    @Published private(set) var knownAccounts: [MusicService: MusicAccount]
+    @Published var senderProfileName: String {
+        didSet { persistSenderProfile() }
+    }
+    @Published private(set) var senderProfileImageData: Data? {
+        didSet { persistSenderProfile() }
+    }
     @Published private(set) var playlists: [UserPlaylist] = []
     @Published private(set) var snapshot: PlaylistSnapshot?
     @Published private(set) var pendingCassette: CassettePayload?
@@ -12,15 +19,38 @@ final class PlaylistTransferViewModel: ObservableObject {
     @Published private(set) var progressValue: Double?
     @Published private(set) var activityLog: [String] = []
     @Published private(set) var transferResult: TransferResult?
+    @Published private(set) var isPreparingShareLink = false
     @Published private(set) var shareURL: URL?
     @Published private(set) var shareText: String?
     @Published private(set) var shareSheetRequest: ShareSheetRequest?
+    @Published private(set) var sentCassetteHistory: [SentCassetteRecord]
+    @Published private(set) var mostRecentlySentCassetteID: SentCassetteRecord.ID?
+    @Published private(set) var needsAppleMusicSenderProfileSetup = false
 
     private let appleMusicService = AppleMusicService()
+    private let sessionStore = MusicAccountSessionStore()
+    private let senderProfileStore = SenderProfileStore()
+    private let sentCassetteStore = SentCassetteStore()
     private let cassetteShareService = CassetteShareService()
     private let spotifyService = SpotifyService()
+    private var pendingSentCassetteRecord: SentCassetteRecord?
 
-    init() {}
+    init() {
+        let restoredSession = sessionStore.load()
+        let restoredSenderProfile = senderProfileStore.load()
+        let restoredSentCassetteHistory = sentCassetteStore.load()
+        self.knownAccounts = restoredSession.knownAccounts
+        self.signedInAccount = restoredSession.activeService.flatMap { restoredSession.knownAccounts[$0] }
+        self.senderProfileName = restoredSenderProfile.displayName ?? ""
+        self.senderProfileImageData = restoredSenderProfile.imageData
+        self.sentCassetteHistory = restoredSentCassetteHistory
+
+        if signedInAccount == nil {
+            self.statusMessage = "Sign in to browse your playlists."
+        } else {
+            self.statusMessage = "Choose a service to continue."
+        }
+    }
 
     var needsSignIn: Bool {
         signedInAccount == nil
@@ -40,11 +70,48 @@ final class PlaylistTransferViewModel: ObservableObject {
         }
     }
 
+    func continueWith(_ service: MusicService) {
+        if signedInAccount?.service == service {
+            Task {
+                await loadOwnedPlaylists()
+            }
+        } else {
+            signIn(to: service)
+        }
+    }
+
+    func buttonTitle(for service: MusicService) -> String {
+        guard knownAccounts[service] != nil else {
+            return "Continue with \(service.displayName)"
+        }
+
+        guard let resolvedName = resolvedAccountDisplayName(for: service) else {
+            return "Signed in to \(service.displayName)"
+        }
+
+        return "\(resolvedName) on \(service.displayName)"
+    }
+
+    func buttonSubtitle(for service: MusicService) -> String {
+        if signedInAccount?.service == service {
+            return "Already signed in. Browse your playlists."
+        }
+
+        if knownAccounts[service] != nil {
+            return "Reconnect this account and browse your playlists."
+        }
+
+        switch service {
+        case .spotify:
+            return "Browse the public playlists you own."
+        case .appleMusic:
+            return "Browse your library playlists with MusicKit."
+        }
+    }
+
     func returnToHome() {
         guard !isWorking else { return }
 
-        signedInAccount = nil
-        playlists = []
         snapshot = nil
         transferResult = nil
         shareURL = nil
@@ -53,7 +120,7 @@ final class PlaylistTransferViewModel: ObservableObject {
         progressValue = nil
         activityLog.removeAll()
         statusMessage = pendingCassette == nil
-            ? "Sign in to browse your playlists."
+            ? (signedInAccount == nil ? "Sign in to browse your playlists." : "Choose a service to continue.")
             : "Choose Spotify or Apple Music to recreate this cassette."
     }
 
@@ -81,7 +148,9 @@ final class PlaylistTransferViewModel: ObservableObject {
     }
 
     func transformCurrentPlaylist() {
-        guard let snapshot else { return }
+        guard let snapshot, !isWorking else { return }
+
+        isPreparingShareLink = true
 
         Task {
             await createShareLink(for: snapshot)
@@ -125,7 +194,7 @@ final class PlaylistTransferViewModel: ObservableObject {
         prepareForIncomingCassette(clearLog: true)
         statusMessage = signedInAccount == nil
             ? "Sign in to browse your playlists."
-            : "Choose one of your playlists."
+            : "Choose a service to continue."
     }
 
     private func performSignIn(to service: MusicService, autoAcceptPendingCassette: Bool = false) async {
@@ -143,13 +212,23 @@ final class PlaylistTransferViewModel: ObservableObject {
                 signedInAccount = try await appleMusicService.signIn()
             }
 
+            if let signedInAccount {
+                knownAccounts[signedInAccount.service] = signedInAccount
+                persistSession()
+            }
+
             appendLog("Signed in to \(signedInAccount?.service.displayName ?? service.displayName).")
 
             isWorking = false
 
             if autoAcceptPendingCassette, let pendingCassette {
+                needsAppleMusicSenderProfileSetup = false
                 await createPlaylistFromIncomingCassette(pendingCassette, destinationService: service)
+            } else if service == .appleMusic {
+                needsAppleMusicSenderProfileSetup = true
+                statusMessage = "Add the name and photo you want to send with Apple Music cassettes."
             } else {
+                needsAppleMusicSenderProfileSetup = false
                 await loadOwnedPlaylists()
             }
         } catch {
@@ -181,6 +260,8 @@ final class PlaylistTransferViewModel: ObservableObject {
             case .appleMusic:
                 playlists = try await appleMusicService.fetchOwnedPlaylists()
             }
+
+            refreshSignedInAccountMetadata(using: playlists)
 
             if playlists.isEmpty {
                 statusMessage = account.service == .spotify
@@ -219,8 +300,9 @@ final class PlaylistTransferViewModel: ObservableObject {
                 loadedSnapshot = try await appleMusicService.fetchOwnedPlaylist(id: playlist.id)
             }
 
-            snapshot = loadedSnapshot
-            statusMessage = "Loaded \(loadedSnapshot.name) with \(loadedSnapshot.tracks.count) tracks."
+            let resolvedSnapshot = snapshotWithSignedInOwner(from: loadedSnapshot, account: account)
+            snapshot = resolvedSnapshot
+            statusMessage = "Loaded \(resolvedSnapshot.name) with \(resolvedSnapshot.tracks.count) tracks."
             appendLog("Ready to transform this playlist into a cassette link.")
         } catch {
             statusMessage = error.localizedDescription
@@ -329,20 +411,79 @@ final class PlaylistTransferViewModel: ObservableObject {
         shareSheetRequest = nil
     }
 
+    func handleShareSheetCompletion(completed: Bool) {
+        shareSheetRequest = nil
+
+        guard completed, let record = pendingSentCassetteRecord else {
+            pendingSentCassetteRecord = nil
+            return
+        }
+
+        sentCassetteHistory.insert(record, at: 0)
+        mostRecentlySentCassetteID = record.id
+        pendingSentCassetteRecord = nil
+        persistSentCassetteHistory()
+    }
+
+    func clearMostRecentlySentCassetteHighlight() {
+        mostRecentlySentCassetteID = nil
+    }
+
+    func completeAppleMusicSenderProfileSetup() {
+        guard needsAppleMusicSenderProfileSetup else {
+            return
+        }
+
+        needsAppleMusicSenderProfileSetup = false
+
+        Task {
+            await loadOwnedPlaylists()
+        }
+    }
+
+    func editAppleMusicSenderProfile() {
+        guard signedInAccount?.service == .appleMusic else {
+            return
+        }
+
+        needsAppleMusicSenderProfileSetup = true
+        statusMessage = "Update the name and photo you want to send with Apple Music cassettes."
+    }
+
+    var senderProfileImage: UIImage? {
+        senderProfileImageData.flatMap(UIImage.init(data:))
+    }
+
+    func setSenderProfileImageData(_ data: Data?) {
+        senderProfileImageData = data
+    }
+
+    func clearSenderProfileImage() {
+        senderProfileImageData = nil
+    }
+
+    func displayName(for service: MusicService) -> String {
+        resolvedAccountDisplayName(for: service) ?? service.displayName
+    }
+
     private func createShareLink(for snapshot: PlaylistSnapshot) async {
         guard !isWorking else { return }
 
         isWorking = true
+        isPreparingShareLink = true
         shareURL = nil
         shareText = nil
         shareSheetRequest = nil
         transferResult = nil
         progressValue = nil
         statusMessage = "Preparing cassette link..."
-        defer { isWorking = false }
+        defer {
+            isWorking = false
+            isPreparingShareLink = false
+        }
 
         do {
-            let payload = CassettePayload(from: snapshot)
+            let payload = buildCassettePayload(from: snapshot)
             let shareURL: URL
 
             appendLog("Uploading cassette for public sharing.")
@@ -358,6 +499,16 @@ final class PlaylistTransferViewModel: ObservableObject {
             UIPasteboard.general.string = shareString
             self.shareURL = shareURL
             shareText = shareString
+            pendingSentCassetteRecord = SentCassetteRecord(
+                id: UUID(),
+                name: snapshot.name,
+                summary: snapshot.summary,
+                artworkURL: snapshot.artworkURL,
+                sourceService: snapshot.sourceService,
+                shareURL: shareURL,
+                trackCount: snapshot.tracks.count,
+                sentAt: Date()
+            )
             shareSheetRequest = ShareSheetRequest(items: [shareString])
         } catch {
             statusMessage = error.localizedDescription
@@ -401,5 +552,199 @@ final class PlaylistTransferViewModel: ObservableObject {
         pendingCassette = payload
         statusMessage = "Choose Spotify or Apple Music to recreate this cassette."
         appendLog("Received cassette \(payload.name).")
+    }
+
+    private func refreshSignedInAccountMetadata(using playlists: [UserPlaylist]) {
+        guard let account = signedInAccount else {
+            return
+        }
+
+        let fallbackName = playlists
+            .compactMap(\.ownerName)
+            .compactMap(\.nilIfBlank)
+            .first(where: { displayNameIsMeaningful($0, for: account.service) })
+
+        let resolvedDisplayName = fallbackName ?? account.displayName
+        guard resolvedDisplayName != account.displayName else {
+            return
+        }
+
+        let updatedAccount = MusicAccount(
+            service: account.service,
+            userID: account.userID,
+            displayName: resolvedDisplayName,
+            profileImageURL: account.profileImageURL
+        )
+
+        signedInAccount = updatedAccount
+        knownAccounts[updatedAccount.service] = updatedAccount
+        persistSession()
+    }
+
+    private func snapshotWithSignedInOwner(from snapshot: PlaylistSnapshot, account: MusicAccount) -> PlaylistSnapshot {
+        let resolvedOwnerName = resolvedAccountDisplayName(for: account.service) ?? snapshot.ownerName
+
+        let resolvedOwnerImageURL = account.profileImageURL ?? snapshot.ownerImageURL
+
+        return PlaylistSnapshot(
+            id: snapshot.id,
+            reference: snapshot.reference,
+            name: snapshot.name,
+            summary: snapshot.summary,
+            artworkURL: snapshot.artworkURL,
+            tracks: snapshot.tracks,
+            ownerName: resolvedOwnerName,
+            ownerImageURL: resolvedOwnerImageURL
+        )
+    }
+
+    private func displayNameIsMeaningful(_ displayName: String, for service: MusicService) -> Bool {
+        let trimmed = displayName.trimmed
+        return trimmed.isEmpty == false && trimmed.caseInsensitiveCompare(service.displayName) != .orderedSame
+    }
+
+    private func resolvedAccountDisplayName(for service: MusicService) -> String? {
+        if let account = knownAccounts[service],
+           displayNameIsMeaningful(account.displayName, for: service) {
+            return account.displayName
+        }
+
+        guard knownAccounts[service] != nil else {
+            return nil
+        }
+
+        return senderProfileName.nilIfBlank
+    }
+
+    private func resolvedAccountProfileImageURL(for service: MusicService) -> URL? {
+        knownAccounts[service]?.profileImageURL
+    }
+
+    private func resolvedAccountProfileImageData(for service: MusicService) -> Data? {
+        guard knownAccounts[service] != nil else {
+            return nil
+        }
+
+        guard resolvedAccountProfileImageURL(for: service) == nil else {
+            return nil
+        }
+
+        return senderProfileImageData
+    }
+
+    private func buildCassettePayload(from snapshot: PlaylistSnapshot) -> CassettePayload {
+        let service = snapshot.sourceService
+
+        return CassettePayload(
+            from: snapshot,
+            senderNameOverride: resolvedAccountDisplayName(for: service) ?? snapshot.ownerName,
+            senderImageURLOverride: resolvedAccountProfileImageURL(for: service) ?? snapshot.ownerImageURL,
+            senderImageDataOverride: resolvedAccountProfileImageData(for: service)
+        )
+    }
+
+    private func persistSession() {
+        sessionStore.save(
+            knownAccounts: knownAccounts,
+            activeService: signedInAccount?.service
+        )
+    }
+
+    private func persistSenderProfile() {
+        senderProfileStore.save(
+            displayName: senderProfileName.nilIfBlank,
+            imageData: senderProfileImageData
+        )
+    }
+
+    private func persistSentCassetteHistory() {
+        sentCassetteStore.save(sentCassetteHistory)
+    }
+}
+
+private struct StoredMusicAccountSession: Codable {
+    let knownAccounts: [MusicAccount]
+    let activeService: MusicService?
+}
+
+private final class MusicAccountSessionStore {
+    private let defaultsKey = "cassette_swap.music_account_session"
+
+    func load() -> (knownAccounts: [MusicService: MusicAccount], activeService: MusicService?) {
+        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+              let stored = try? JSONDecoder().decode(StoredMusicAccountSession.self, from: data) else {
+            return ([:], nil)
+        }
+
+        let accounts = Dictionary(uniqueKeysWithValues: stored.knownAccounts.map { ($0.service, $0) })
+        return (accounts, stored.activeService)
+    }
+
+    func save(knownAccounts: [MusicService: MusicAccount], activeService: MusicService?) {
+        let stored = StoredMusicAccountSession(
+            knownAccounts: Array(knownAccounts.values),
+            activeService: activeService
+        )
+
+        guard let data = try? JSONEncoder().encode(stored) else {
+            return
+        }
+
+        UserDefaults.standard.set(data, forKey: defaultsKey)
+    }
+}
+
+private struct StoredSenderProfile: Codable {
+    let displayName: String?
+    let imageDataBase64: String?
+}
+
+private final class SenderProfileStore {
+    private let defaultsKey = "cassette_swap.sender_profile"
+
+    func load() -> (displayName: String?, imageData: Data?) {
+        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+              let stored = try? JSONDecoder().decode(StoredSenderProfile.self, from: data) else {
+            return (nil, nil)
+        }
+
+        return (
+            displayName: stored.displayName,
+            imageData: stored.imageDataBase64.flatMap { Data(base64Encoded: $0) }
+        )
+    }
+
+    func save(displayName: String?, imageData: Data?) {
+        let stored = StoredSenderProfile(
+            displayName: displayName,
+            imageDataBase64: imageData?.base64EncodedString()
+        )
+
+        guard let data = try? JSONEncoder().encode(stored) else {
+            return
+        }
+
+        UserDefaults.standard.set(data, forKey: defaultsKey)
+    }
+}
+
+private final class SentCassetteStore {
+    private let defaultsKey = "cassette_swap.sent_cassette_history"
+
+    func load() -> [SentCassetteRecord] {
+        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+              let stored = try? JSONDecoder().decode([SentCassetteRecord].self, from: data) else {
+            return []
+        }
+
+        return stored.sorted { $0.sentAt > $1.sentAt }
+    }
+
+    func save(_ records: [SentCassetteRecord]) {
+        guard let data = try? JSONEncoder().encode(records) else {
+            return
+        }
+
+        UserDefaults.standard.set(data, forKey: defaultsKey)
     }
 }

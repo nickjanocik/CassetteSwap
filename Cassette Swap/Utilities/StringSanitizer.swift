@@ -7,7 +7,16 @@ extension String {
 
     var nilIfBlank: String? {
         let value = trimmed
-        return value.isEmpty ? nil : value
+        guard value.isEmpty == false else {
+            return nil
+        }
+
+        let normalized = value.lowercased()
+        if normalized == "null" || normalized == "(null)" || normalized == "<null>" {
+            return nil
+        }
+
+        return value
     }
 
     var condensedWhitespace: String {
